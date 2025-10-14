@@ -47,46 +47,58 @@ class SiesaAPIClient:
             )
             response.raise_for_status()
             
-            # Intentar parsear la respuesta
-            try:
-                data = response.json()
-            except json.JSONDecodeError:
-                # Si falla, intentar parsear el texto como JSON
-                logger.warning("Respuesta no es JSON válido, intentando parsear texto")
-                data = json.loads(response.text)
+            # Parsear respuesta JSON
+            data = response.json()
             
-            # Verificar si la respuesta es una lista
-            if isinstance(data, list):
+            # Verificar estructura de respuesta SIESA
+            if isinstance(data, dict):
+                # Verificar si hay error en la respuesta
+                if 'codigo' in data and data['codigo'] != 0:
+                    logger.error(f"Error en API: {data.get('mensaje', 'Error desconocido')}")
+                    raise ValueError(f"Error en API: {data.get('mensaje', 'Error desconocido')}")
+                
+                # Extraer facturas de la estructura SIESA
+                if 'detalle' in data and isinstance(data['detalle'], dict):
+                    detalle = data['detalle']
+                    
+                    # Buscar en Table (estructura SIESA común)
+                    if 'Table' in detalle and isinstance(detalle['Table'], list):
+                        facturas = detalle['Table']
+                        logger.info(f"Se obtuvieron {len(facturas)} facturas")
+                        return facturas
+                    
+                    # Buscar en table (lowercase)
+                    if 'table' in detalle and isinstance(detalle['table'], list):
+                        facturas = detalle['table']
+                        logger.info(f"Se obtuvieron {len(facturas)} facturas")
+                        return facturas
+                    
+                    # Si detalle tiene una lista directa
+                    for key in detalle.keys():
+                        if isinstance(detalle[key], list):
+                            facturas = detalle[key]
+                            logger.info(f"Se obtuvieron {len(facturas)} facturas desde clave '{key}'")
+                            return facturas
+                
+                # Buscar directamente en las claves principales
+                for key in ['data', 'facturas', 'result', 'rows', 'Table', 'table']:
+                    if key in data and isinstance(data[key], list):
+                        facturas = data[key]
+                        logger.info(f"Se obtuvieron {len(facturas)} facturas desde clave '{key}'")
+                        return facturas
+                
+                # Log de estructura no reconocida
+                logger.error(f"Estructura de respuesta no reconocida")
+                logger.error(f"Claves principales: {list(data.keys())}")
+                if 'detalle' in data:
+                    logger.error(f"Claves en 'detalle': {list(data['detalle'].keys()) if isinstance(data['detalle'], dict) else type(data['detalle'])}")
+                logger.error(f"Respuesta completa: {json.dumps(data, indent=2)[:1000]}")
+                raise ValueError("No se encontraron facturas en la estructura de respuesta")
+            
+            # Si la respuesta es una lista directamente
+            elif isinstance(data, list):
                 logger.info(f"Se obtuvieron {len(data)} facturas")
                 return data
-            
-            # Si es un diccionario, buscar la lista dentro
-            elif isinstance(data, dict):
-                # Intentar diferentes claves comunes
-                for key in ['data', 'facturas', 'result', 'rows']:
-                    if key in data and isinstance(data[key], list):
-                        logger.info(f"Se obtuvieron {len(data[key])} facturas desde clave '{key}'")
-                        return data[key]
-                
-                # Si el diccionario tiene una sola clave, devolver su valor
-                if len(data) == 1:
-                    value = list(data.values())[0]
-                    if isinstance(value, list):
-                        logger.info(f"Se obtuvieron {len(value)} facturas")
-                        return value
-                
-                logger.error(f"Estructura de respuesta no reconocida: {list(data.keys())}")
-                raise ValueError("Estructura de respuesta no reconocida")
-            
-            # Si es un string, intentar parsearlo
-            elif isinstance(data, str):
-                logger.warning("Respuesta es string, intentando parsear")
-                parsed_data = json.loads(data)
-                if isinstance(parsed_data, list):
-                    logger.info(f"Se obtuvieron {len(parsed_data)} facturas")
-                    return parsed_data
-                else:
-                    return self.obtener_facturas_from_dict(parsed_data)
             
             else:
                 logger.error(f"Tipo de respuesta no esperado: {type(data)}")
@@ -94,29 +106,15 @@ class SiesaAPIClient:
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Error al consultar la API: {e}")
-            logger.error(f"URL: {response.url if 'response' in locals() else 'N/A'}")
-            logger.error(f"Status: {response.status_code if 'response' in locals() else 'N/A'}")
+            if 'response' in locals():
+                logger.error(f"URL: {response.url}")
+                logger.error(f"Status: {response.status_code}")
             raise
-        except ValueError as e:
-            logger.error(f"Error al procesar respuesta: {e}")
-            # Imprimir los primeros 500 caracteres de la respuesta para debug
+        except json.JSONDecodeError as e:
+            logger.error(f"Error al parsear JSON: {e}")
             if 'response' in locals():
                 logger.error(f"Respuesta (primeros 500 chars): {response.text[:500]}")
             raise
-    
-    def obtener_facturas_from_dict(self, data: dict) -> List[Dict]:
-        """Helper method para extraer facturas de un diccionario"""
-        for key in ['data', 'facturas', 'result', 'rows']:
-            if key in data and isinstance(data[key], list):
-                logger.info(f"Se obtuvieron {len(data[key])} facturas desde clave '{key}'")
-                return data[key]
-        
-        # Si hay una sola clave, devolver su valor
-        if len(data) == 1:
-            value = list(data.values())[0]
-            if isinstance(value, list):
-                logger.info(f"Se obtuvieron {len(value)} facturas")
-                return value
-        
-        logger.error(f"No se encontró lista de facturas en: {list(data.keys())}")
-        raise ValueError("No se encontró lista de facturas en la respuesta")
+        except ValueError as e:
+            logger.error(f"Error al procesar respuesta: {e}")
+            raise
