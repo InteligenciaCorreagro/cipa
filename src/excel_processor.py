@@ -1,5 +1,5 @@
-from openpyxl import load_workbook
-from openpyxl.styles import numbers
+from openpyxl import Workbook
+from openpyxl.styles import numbers, Font, PatternFill, Alignment
 from datetime import datetime
 from typing import List, Dict
 import logging
@@ -9,32 +9,7 @@ logger = logging.getLogger(__name__)
 class ExcelProcessor:
     """Procesa y genera archivos Excel con datos de facturas"""
     
-    # Mapeo de columnas según tu plantilla
-    COLUMN_MAPPING = {
-        'A': 'numero_factura',      # N° Factura
-        'B': 'nombre_producto',      # Nombre Producto
-        'C': 'codigo_subyacente',    # Codigo Subyacente
-        'D': 'unidad_medida',        # Unidad Medida
-        'E': 'cantidad',             # Cantidad
-        'F': 'precio_unitario',      # Precio Unitario
-        'G': 'fecha_factura',        # Fecha Factura
-        'H': 'fecha_pago',           # Fecha Pago
-        'I': 'nit_comprador',        # Nit Comprador
-        'J': 'nombre_comprador',     # Nombre Comprador
-        'K': 'nit_vendedor',         # Nit Vendedor
-        'L': 'nombre_vendedor',      # Nombre Vendedor
-        'M': 'principal',            # Principal V,C
-        'N': 'municipio',            # Municipio
-        'O': 'iva',                  # Iva
-        'P': 'descripcion',          # Descripción
-        'Q': 'activa_factura',       # Activa Factura
-        'R': 'activa_bodega',        # Activa Bodega
-        'S': 'incentivo',            # Incentivo
-        'T': 'cantidad_original',    # Cantidad Original
-        'U': 'moneda'                # Moneda
-    }
-    
-    def __init__(self, template_path: str):
+    def __init__(self, template_path: str = None):
         self.template_path = template_path
     
     def transformar_factura(self, factura: Dict) -> Dict:
@@ -87,9 +62,9 @@ class ExcelProcessor:
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
         """Extrae el porcentaje de IVA del grupo impositivo"""
-        if 'IVA 5%' in grupo_impositivo:
+        if 'IVA 5%' in grupo_impositivo or '5%' in grupo_impositivo:
             return '5'
-        elif 'IVA 19%' in grupo_impositivo:
+        elif 'IVA 19%' in grupo_impositivo or '19%' in grupo_impositivo:
             return '19'
         elif 'IVA 0%' in grupo_impositivo or 'EXCLUIDO' in grupo_impositivo:
             return '0'
@@ -100,6 +75,34 @@ class ExcelProcessor:
         if '-' in ciudad_raw:
             return ciudad_raw.split('-')[1].strip()
         return ciudad_raw.strip()
+    
+    def _crear_encabezados(self, ws):
+        """Crea los encabezados del Excel con formato"""
+        encabezados = [
+            'N° Factura', 'Nombre Producto', 'Codigo Subyacente', 'Unidad Medida en Kg,Un,Lt',
+            'Cantidad (5 decimales - separdor coma)', 'Precio Unitario (5 decimales - separdor coma)',
+            'Fecha Factura Año-Mes-Dia', 'Fecha Pago Año-Mes-Dia', 'Nit Comprador (Existente)',
+            'Nombre Comprador', 'Nit Vendedor (Existente)', 'Nombre Vendedor', 'Principal V,C',
+            'Municipio (Nombre Exacto de la Ciudad)', 'Iva (N°%)', 'Descripción', 'Activa Factura',
+            'Activa Bodega', 'Incentivo', 'Cantidad Original (5 decimales - separdor coma)', 'Moneda (1,2,3)'
+        ]
+        
+        # Estilo de encabezado
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        for col_num, header in enumerate(encabezados, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+        
+        # Ajustar ancho de columnas
+        column_widths = [15, 40, 15, 20, 20, 20, 18, 18, 20, 35, 20, 35, 12, 30, 10, 30, 15, 15, 15, 25, 12]
+        for col_num, width in enumerate(column_widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
     
     def generar_excel(self, facturas: List[Dict], output_path: str) -> str:
         """
@@ -113,16 +116,18 @@ class ExcelProcessor:
             Ruta del archivo generado
         """
         try:
-            # Cargar plantilla
-            wb = load_workbook(self.template_path)
+            # Crear nuevo workbook
+            wb = Workbook()
             ws = wb.active
+            ws.title = "Facturas"
             
-            # Determinar fila inicial (asumiendo que row 1 es encabezado)
-            start_row = 2
+            # Crear encabezados
+            self._crear_encabezados(ws)
             
             logger.info(f"Procesando {len(facturas)} facturas")
             
-            for idx, factura in enumerate(facturas, start=start_row):
+            # Agregar datos
+            for idx, factura in enumerate(facturas, start=2):
                 ws[f'A{idx}'] = factura['numero_factura']
                 ws[f'B{idx}'] = factura['nombre_producto']
                 ws[f'C{idx}'] = factura['codigo_subyacente']
