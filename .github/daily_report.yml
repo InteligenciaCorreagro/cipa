@@ -1,0 +1,45 @@
+name: Reporte Diario de Facturas
+
+on:
+  schedule:
+    # Ejecutar todos los días a las 6:00 AM UTC (ajusta según tu zona horaria)
+    - cron: '0 13 * * *
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  generar-reporte:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Ejecutar proceso
+        env:
+          CONNI_KEY: ${{ secrets.CONNI_KEY }}
+          CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
+        run: python main.py
+      
+      - name: Cargar archivo generado como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-facturas
+          path: output/*.xlsx
+          retention-days: 30
