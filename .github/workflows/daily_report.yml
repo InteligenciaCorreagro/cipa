@@ -2,8 +2,8 @@ name: Reporte Diario de Facturas
 
 on:
   schedule:
-    # Ejecutar todos los días a las 6:00 AM UTC (ajusta según tu zona horaria)
-    - cron: '0 13 * * *
+    # Ejecutar todos los días a las 1:00 PM UTC = 8:00 AM Bogotá (UTC-5)
+    - cron: '0 13 * * *'
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
