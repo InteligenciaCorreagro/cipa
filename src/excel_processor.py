@@ -3,11 +3,17 @@ from openpyxl.styles import numbers, Font, PatternFill, Alignment
 from datetime import datetime
 from typing import List, Dict
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 class ExcelProcessor:
     """Procesa y genera archivos Excel con datos de facturas"""
+    
+    # Constantes de la empresa
+    NIT_VENDEDOR = "890907163"
+    NOMBRE_VENDEDOR = "COMPAÑIA INDUSTRIAL DE PRODUCTOS AGROPECUARIOS S.A"
+    CODIGO_SUBYACENTE = "SPN-1"
     
     def __init__(self, template_path: str = None):
         self.template_path = template_path
@@ -22,69 +28,148 @@ class ExcelProcessor:
         Returns:
             Diccionario con datos transformados
         """
-        # Extraer número de factura completo
-        numero_factura = f"{factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}"
+        # N° Factura: Prefijo + Número (sin espacios)
+        numero_factura = f"{factura.get('f_prefijo', '').strip()}{factura.get('f_nrodocto', '')}"
         
-        # Procesar fecha
+        # Procesar fecha factura
         fecha_str = factura.get('f_fecha', '')
         fecha_factura = datetime.fromisoformat(fecha_str.replace('T00:00:00', '')) if fecha_str else None
         
-        # Extraer IVA del grupo impositivo
-        grupo_impositivo = factura.get('f_desc_grupo_impositivo', '')
-        iva = self._extraer_iva(grupo_impositivo)
+        # Extraer IVA del grupo impositivo (solo el número)
+        iva = self._extraer_iva(factura.get('f_desc_grupo_impositivo', ''))
         
-        # Extraer ciudad del campo que contiene código-nombre
+        # Extraer ciudad (sin el código)
         ciudad = self._extraer_ciudad(factura.get('f_ciudad_punto_envio', ''))
+        
+        # Normalizar unidad de medida a KG, UN o LT
+        unidad_medida = self._normalizar_unidad_medida(factura.get('f_um_inv_desc', ''))
+        
+        # Cantidad base
+        cantidad = factura.get('f_cant_base', 0.0)
+        
+        # Precio unitario
+        precio_unitario = factura.get('f_precio_unit_docto', 0.0)
+        
+        # f_um_base original (para la última columna)
+        um_base = factura.get('f_um_base', '').strip()
+        
+        # Cantidad Original = cantidad * multiplicador de unidad base
+        multiplicador = self._extraer_multiplicador_um_base(um_base)
+        cantidad_original = cantidad * multiplicador
         
         return {
             'numero_factura': numero_factura,
-            'nombre_producto': factura.get('f_desc_item', ''),
-            'codigo_subyacente': factura.get('f_tipo_inv', '').strip(),
-            'unidad_medida': factura.get('f_um_inv_desc', ''),
-            'cantidad': factura.get('f_cant_base', 0.0),
-            'precio_unitario': factura.get('f_precio_unit_docto', 0.0),
+            'nombre_producto': factura.get('f_desc_item', '').strip(),
+            'codigo_subyacente': self.CODIGO_SUBYACENTE,
+            'unidad_medida': unidad_medida,
+            'cantidad': cantidad,
+            'precio_unitario': precio_unitario,
             'fecha_factura': fecha_factura,
-            'fecha_pago': None,  # Calcular según condición de pago si es necesario
+            'fecha_pago': None,  # No viene en la API
             'nit_comprador': factura.get('f_cliente_desp', '').strip(),
-            'nombre_comprador': factura.get('f_cliente_fact_razon_soc', ''),
-            'nit_vendedor': '',  # No está en el JSON proporcionado
-            'nombre_vendedor': '',  # No está en el JSON proporcionado
-            'principal': 'V',  # Valor por defecto, ajustar según lógica de negocio
+            'nombre_comprador': factura.get('f_cliente_fact_razon_soc', '').strip(),
+            'nit_vendedor': self.NIT_VENDEDOR,
+            'nombre_vendedor': self.NOMBRE_VENDEDOR,
+            'principal': 'V',
             'municipio': ciudad,
             'iva': iva,
-            'descripcion': factura.get('f_desc_tipo_inv', ''),
-            'activa_factura': 'SI',  # Valor por defecto
-            'activa_bodega': 'SI',  # Valor por defecto
+            'descripcion': factura.get('f_desc_tipo_inv', '').strip(),
+            'activa_factura': '1',
+            'activa_bodega': '1',
             'incentivo': '',
-            'cantidad_original': factura.get('f_peso', 0.0),
-            'moneda': '1'  # 1=Peso colombiano, ajustar según necesidad
+            'cantidad_original': cantidad_original,
+            'moneda': '1',
+            'um_base': um_base  # NUEVA COLUMNA
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
-        """Extrae el porcentaje de IVA del grupo impositivo"""
-        if 'IVA 5%' in grupo_impositivo or '5%' in grupo_impositivo:
-            return '5'
-        elif 'IVA 19%' in grupo_impositivo or '19%' in grupo_impositivo:
-            return '19'
-        elif 'IVA 0%' in grupo_impositivo or 'EXCLUIDO' in grupo_impositivo:
-            return '0'
+        """
+        Extrae el porcentaje de IVA del grupo impositivo
+        Ejemplo: "IVA 5% RTF BIENES RETEIVA RETEICA" -> "5"
+        """
+        # Buscar patrón "IVA X%" o "X%"
+        match = re.search(r'IVA\s*(\d+)%', grupo_impositivo, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        
+        # Si no encuentra, buscar solo número con %
+        match = re.search(r'(\d+)%', grupo_impositivo)
+        if match:
+            return match.group(1)
+        
+        # Por defecto 0
         return '0'
     
     def _extraer_ciudad(self, ciudad_raw: str) -> str:
-        """Extrae el nombre de la ciudad del formato '088-Bello'"""
+        """
+        Extrae el nombre de la ciudad del formato 'XXX-Ciudad'
+        Ejemplo: "001-Pereira" -> "Pereira"
+        """
         if '-' in ciudad_raw:
-            return ciudad_raw.split('-')[1].strip()
+            return ciudad_raw.split('-', 1)[1].strip()
         return ciudad_raw.strip()
+    
+    def _normalizar_unidad_medida(self, um_desc: str) -> str:
+        """
+        Normaliza la unidad de medida a KG, UN o LT
+        """
+        um_upper = um_desc.upper().strip()
+        
+        # Mapeo de unidades
+        if 'KILO' in um_upper or 'KG' in um_upper or 'KLS' in um_upper:
+            return 'KG'
+        elif 'LITRO' in um_upper or 'LT' in um_upper:
+            return 'LT'
+        elif 'UNIDAD' in um_upper or 'UND' in um_upper or 'UN' in um_upper:
+            return 'UN'
+        elif 'BULTO' in um_upper or 'BT' in um_upper:
+            return 'KG'  # Los bultos se consideran en KG
+        else:
+            # Por defecto UN
+            return 'UN'
+    
+    def _extraer_multiplicador_um_base(self, um_base: str) -> float:
+        """
+        Extrae el multiplicador de la unidad base
+        Ejemplos:
+        - "BT40" -> 40
+        - "BT30" -> 30
+        - "KLS" -> 1
+        - "UND" -> 1
+        """
+        # Buscar número en la cadena
+        match = re.search(r'(\d+)', um_base)
+        if match:
+            return float(match.group(1))
+        
+        # Si no tiene número, multiplicar por 1
+        return 1.0
     
     def _crear_encabezados(self, ws):
         """Crea los encabezados del Excel con formato"""
         encabezados = [
-            'N° Factura', 'Nombre Producto', 'Codigo Subyacente', 'Unidad Medida en Kg,Un,Lt',
-            'Cantidad (5 decimales - separdor coma)', 'Precio Unitario (5 decimales - separdor coma)',
-            'Fecha Factura Año-Mes-Dia', 'Fecha Pago Año-Mes-Dia', 'Nit Comprador (Existente)',
-            'Nombre Comprador', 'Nit Vendedor (Existente)', 'Nombre Vendedor', 'Principal V,C',
-            'Municipio (Nombre Exacto de la Ciudad)', 'Iva (N°%)', 'Descripción', 'Activa Factura',
-            'Activa Bodega', 'Incentivo', 'Cantidad Original (5 decimales - separdor coma)', 'Moneda (1,2,3)'
+            'N° Factura',
+            'Nombre Producto',
+            'Codigo Subyacente',
+            'Unidad Medida en Kg,Un,Lt',
+            'Cantidad (5 decimales - separdor coma)',
+            'Precio Unitario (5 decimales - separdor coma)',
+            'Fecha Factura Año-Mes-Dia',
+            'Fecha Pago Año-Mes-Dia',
+            'Nit Comprador (Existente)',
+            'Nombre Comprador',
+            'Nit Vendedor (Existente)',
+            'Nombre Vendedor',
+            'Principal V,C',
+            'Municipio (Nombre Exacto de la Ciudad)',
+            'Iva (N°%)',
+            'Descripción',
+            'Activa Factura',
+            'Activa Bodega',
+            'Incentivo',
+            'Cantidad Original (5 decimales - separdor coma)',
+            'Moneda (1,2,3)',
+            'UM Base'  # NUEVA COLUMNA
         ]
         
         # Estilo de encabezado
@@ -99,8 +184,8 @@ class ExcelProcessor:
             cell.fill = header_fill
             cell.alignment = header_alignment
         
-        # Ajustar ancho de columnas
-        column_widths = [15, 40, 15, 20, 20, 20, 18, 18, 20, 35, 20, 35, 12, 30, 10, 30, 15, 15, 15, 25, 12]
+        # Ajustar ancho de columnas (agregamos un ancho más al final)
+        column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15]
         for col_num, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
     
@@ -141,14 +226,13 @@ class ExcelProcessor:
                 ws[f'F{idx}'] = factura['precio_unitario']
                 ws[f'F{idx}'].number_format = '#,##0.00000'
                 
-                # Fechas
+                # Fecha factura
                 if factura['fecha_factura']:
                     ws[f'G{idx}'] = factura['fecha_factura']
                     ws[f'G{idx}'].number_format = 'YYYY-MM-DD'
                 
-                if factura['fecha_pago']:
-                    ws[f'H{idx}'] = factura['fecha_pago']
-                    ws[f'H{idx}'].number_format = 'YYYY-MM-DD'
+                # Fecha pago (vacía por ahora)
+                ws[f'H{idx}'] = ''
                 
                 ws[f'I{idx}'] = factura['nit_comprador']
                 ws[f'J{idx}'] = factura['nombre_comprador']
@@ -162,11 +246,14 @@ class ExcelProcessor:
                 ws[f'R{idx}'] = factura['activa_bodega']
                 ws[f'S{idx}'] = factura['incentivo']
                 
-                # Cantidad original
+                # Cantidad original con 5 decimales
                 ws[f'T{idx}'] = factura['cantidad_original']
                 ws[f'T{idx}'].number_format = '#,##0.00000'
                 
                 ws[f'U{idx}'] = factura['moneda']
+                
+                # NUEVA COLUMNA: UM Base
+                ws[f'V{idx}'] = factura['um_base']
             
             # Guardar archivo
             wb.save(output_path)
