@@ -29,57 +29,68 @@ class ExcelProcessor:
             Diccionario con datos transformados
         """
         # N° Factura: Prefijo + Número (sin espacios)
-        numero_factura = f"{factura.get('f_prefijo', '').strip()}{factura.get('f_nrodocto', '')}"
+        prefijo = str(factura.get('f_prefijo', '')).strip()
+        nrodocto = factura.get('f_nrodocto', '')
+        numero_factura = f"{prefijo}{nrodocto}"
         
         # Procesar fecha factura
         fecha_str = factura.get('f_fecha', '')
-        fecha_factura = datetime.fromisoformat(fecha_str.replace('T00:00:00', '')) if fecha_str else None
+        fecha_factura = None
+        if fecha_str:
+            try:
+                fecha_factura = datetime.fromisoformat(str(fecha_str).replace('T00:00:00', ''))
+            except (ValueError, AttributeError):
+                logger.warning(f"Error parseando fecha: {fecha_str}")
         
         # Extraer IVA del grupo impositivo (solo el número)
         iva = self._extraer_iva(factura.get('f_desc_grupo_impositivo', ''))
         
         # Extraer ciudad (sin el código)
-        ciudad = self._extraer_ciudad(factura.get('f_ciudad_punto_envio', ''))
+        ciudad = self._extraer_ciudad(factura.get('f_ciudad_punto_envio'))
         
         # Normalizar unidad de medida a KG, UN o LT
         unidad_medida = self._normalizar_unidad_medida(factura.get('f_um_inv_desc', ''))
         
         # Cantidad base
         cantidad = factura.get('f_cant_base', 0.0)
+        if cantidad is None:
+            cantidad = 0.0
         
         # Precio unitario
         precio_unitario = factura.get('f_precio_unit_docto', 0.0)
+        if precio_unitario is None:
+            precio_unitario = 0.0
         
         # f_um_base original (para la última columna)
-        um_base = factura.get('f_um_base', '').strip()
+        um_base = str(factura.get('f_um_base', '')).strip()
         
         # Cantidad Original = cantidad * multiplicador de unidad base
         multiplicador = self._extraer_multiplicador_um_base(um_base)
-        cantidad_original = cantidad * multiplicador
+        cantidad_original = float(cantidad) * multiplicador
         
         return {
             'numero_factura': numero_factura,
-            'nombre_producto': factura.get('f_desc_item', '').strip(),
+            'nombre_producto': str(factura.get('f_desc_item', '')).strip(),
             'codigo_subyacente': self.CODIGO_SUBYACENTE,
             'unidad_medida': unidad_medida,
-            'cantidad': cantidad,
-            'precio_unitario': precio_unitario,
+            'cantidad': float(cantidad),
+            'precio_unitario': float(precio_unitario),
             'fecha_factura': fecha_factura,
             'fecha_pago': None,  # No viene en la API
-            'nit_comprador': factura.get('f_cliente_desp', '').strip(),
-            'nombre_comprador': factura.get('f_cliente_fact_razon_soc', '').strip(),
+            'nit_comprador': str(factura.get('f_cliente_desp', '')).strip(),
+            'nombre_comprador': str(factura.get('f_cliente_fact_razon_soc', '')).strip(),
             'nit_vendedor': self.NIT_VENDEDOR,
             'nombre_vendedor': self.NOMBRE_VENDEDOR,
             'principal': 'V',
             'municipio': ciudad,
             'iva': iva,
-            'descripcion': factura.get('f_desc_tipo_inv', '').strip(),
+            'descripcion': str(factura.get('f_desc_tipo_inv', '')).strip(),
             'activa_factura': '1',
             'activa_bodega': '1',
             'incentivo': '',
             'cantidad_original': cantidad_original,
             'moneda': '1',
-            'um_base': um_base  # NUEVA COLUMNA
+            'um_base': um_base
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
@@ -87,6 +98,11 @@ class ExcelProcessor:
         Extrae el porcentaje de IVA del grupo impositivo
         Ejemplo: "IVA 5% RTF BIENES RETEIVA RETEICA" -> "5"
         """
+        if not grupo_impositivo:
+            return '0'
+        
+        grupo_impositivo = str(grupo_impositivo)
+        
         # Buscar patrón "IVA X%" o "X%"
         match = re.search(r'IVA\s*(\d+)%', grupo_impositivo, re.IGNORECASE)
         if match:
@@ -100,20 +116,30 @@ class ExcelProcessor:
         # Por defecto 0
         return '0'
     
-    def _extraer_ciudad(self, ciudad_raw: str) -> str:
+    def _extraer_ciudad(self, ciudad_raw) -> str:
         """
         Extrae el nombre de la ciudad del formato 'XXX-Ciudad'
         Ejemplo: "001-Pereira" -> "Pereira"
         """
+        # Manejar valores None o vacíos
+        if ciudad_raw is None or ciudad_raw == '':
+            return ''
+        
+        ciudad_raw = str(ciudad_raw).strip()
+        
         if '-' in ciudad_raw:
             return ciudad_raw.split('-', 1)[1].strip()
-        return ciudad_raw.strip()
+        
+        return ciudad_raw
     
     def _normalizar_unidad_medida(self, um_desc: str) -> str:
         """
         Normaliza la unidad de medida a KG, UN o LT
         """
-        um_upper = um_desc.upper().strip()
+        if not um_desc:
+            return 'UN'
+        
+        um_upper = str(um_desc).upper().strip()
         
         # Mapeo de unidades
         if 'KILO' in um_upper or 'KG' in um_upper or 'KLS' in um_upper:
@@ -137,8 +163,11 @@ class ExcelProcessor:
         - "KLS" -> 1
         - "UND" -> 1
         """
+        if not um_base:
+            return 1.0
+        
         # Buscar número en la cadena
-        match = re.search(r'(\d+)', um_base)
+        match = re.search(r'(\d+)', str(um_base))
         if match:
             return float(match.group(1))
         
@@ -169,7 +198,7 @@ class ExcelProcessor:
             'Incentivo',
             'Cantidad Original (5 decimales - separdor coma)',
             'Moneda (1,2,3)',
-            'UM Base'  # NUEVA COLUMNA
+            'UM Base'
         ]
         
         # Estilo de encabezado
@@ -184,7 +213,7 @@ class ExcelProcessor:
             cell.fill = header_fill
             cell.alignment = header_alignment
         
-        # Ajustar ancho de columnas (agregamos un ancho más al final)
+        # Ajustar ancho de columnas
         column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15]
         for col_num, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
