@@ -21,10 +21,10 @@ class ExcelProcessor:
     def transformar_factura(self, factura: Dict) -> Dict:
         """
         Transforma una factura del formato API al formato Excel
-        
+
         Args:
             factura: Datos de factura en formato JSON de la API
-            
+
         Returns:
             Diccionario con datos transformados
         """
@@ -32,7 +32,7 @@ class ExcelProcessor:
         prefijo = str(factura.get('f_prefijo', '')).strip()
         nrodocto = factura.get('f_nrodocto', '')
         numero_factura = f"{prefijo}{nrodocto}"
-        
+
         # Procesar fecha factura
         fecha_str = factura.get('f_fecha', '')
         fecha_factura = None
@@ -41,40 +41,53 @@ class ExcelProcessor:
                 fecha_factura = datetime.fromisoformat(str(fecha_str).replace('T00:00:00', ''))
             except (ValueError, AttributeError):
                 logger.warning(f"Error parseando fecha: {fecha_str}")
-        
+
         # Extraer IVA del grupo impositivo (solo el número)
         iva = self._extraer_iva(factura.get('f_desc_grupo_impositivo', ''))
-        
+
         # Extraer ciudad (sin el código)
         ciudad = self._extraer_ciudad(factura.get('f_ciudad_punto_envio'))
-        
+
         # Normalizar unidad de medida a KG, UN o LT
         unidad_medida = self._normalizar_unidad_medida(factura.get('f_um_inv_desc', ''))
-        
-        # Cantidad base
-        cantidad = factura.get('f_cant_base', 0.0)
-        if cantidad is None:
-            cantidad = 0.0
-        
-        # Precio unitario
-        precio_unitario = factura.get('f_precio_unit_docto', 0.0)
-        if precio_unitario is None:
-            precio_unitario = 0.0
-        
+
+        # Cantidad base original de la API
+        cantidad_base_api = factura.get('f_cant_base', 0.0)
+        if cantidad_base_api is None:
+            cantidad_base_api = 0.0
+
         # f_um_base original (para la última columna)
         um_base = str(factura.get('f_um_base', '')).strip()
-        
-        # Cantidad Original = cantidad * multiplicador de unidad base
+
+        # Multiplicador de unidad base
         multiplicador = self._extraer_multiplicador_um_base(um_base)
-        cantidad_original = float(cantidad) * multiplicador
-        
+
+        # INTERCAMBIO: 
+        # - cantidad (columna E) = cantidad_base_api * multiplicador (lo que antes era cantidad_original)
+        # - cantidad_original (columna T) = cantidad_base_api (lo que antes era cantidad)
+        cantidad_convertida = float(cantidad_base_api) * multiplicador
+        cantidad_original = float(cantidad_base_api)
+
+        # Valor total del API
+        valor_total = factura.get('f_valor_subtotal_local', 0.0)
+        if valor_total is None:
+            valor_total = 0.0
+        valor_total = float(valor_total)
+
+        # Calcular precio unitario = valor_total / cantidad_convertida
+        if cantidad_convertida != 0:
+            precio_unitario = valor_total / cantidad_convertida
+        else:
+            precio_unitario = 0.0
+            logger.warning(f"Cantidad convertida es 0 para factura {numero_factura}, precio unitario = 0")
+
         return {
             'numero_factura': numero_factura,
             'nombre_producto': str(factura.get('f_desc_item', '')).strip(),
             'codigo_subyacente': self.CODIGO_SUBYACENTE,
             'unidad_medida': unidad_medida,
-            'cantidad': float(cantidad),
-            'precio_unitario': float(precio_unitario),
+            'cantidad': cantidad_convertida,  # CAMBIO: ahora es la cantidad convertida
+            'precio_unitario': precio_unitario,  # CAMBIO: calculado desde valor_total
             'fecha_factura': fecha_factura,
             'fecha_pago': None,  # No viene en la API
             'nit_comprador': str(factura.get('f_cliente_desp', '')).strip(),
@@ -88,9 +101,10 @@ class ExcelProcessor:
             'activa_factura': '1',
             'activa_bodega': '1',
             'incentivo': '',
-            'cantidad_original': cantidad_original,
+            'cantidad_original': cantidad_original,  # CAMBIO: ahora es la cantidad base sin multiplicar
             'moneda': '1',
-            'um_base': um_base
+            'um_base': um_base,
+            'valor_total': valor_total  # NUEVO: valor subtotal del API
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
@@ -198,23 +212,24 @@ class ExcelProcessor:
             'Incentivo',
             'Cantidad Original (5 decimales - separdor coma)',
             'Moneda (1,2,3)',
-            'UM Base'
+            'UM Base',
+            'Valor Total'  # NUEVA COLUMNA
         ]
-        
+
         # Estilo de encabezado
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
+
         for col_num, header in enumerate(encabezados, 1):
             cell = ws.cell(row=1, column=col_num)
             cell.value = header
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_alignment
-        
-        # Ajustar ancho de columnas
-        column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15]
+
+        # Ajustar ancho de columnas (agregamos ancho para la nueva columna)
+        column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15, 20]
         for col_num, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
     
@@ -280,9 +295,11 @@ class ExcelProcessor:
                 ws[f'T{idx}'].number_format = '#,##0.00000'
                 
                 ws[f'U{idx}'] = factura['moneda']
-                
-                # NUEVA COLUMNA: UM Base
                 ws[f'V{idx}'] = factura['um_base']
+                
+                # NUEVA COLUMNA: Valor Total con 5 decimales
+                ws[f'W{idx}'] = factura['valor_total']
+                ws[f'W{idx}'].number_format = '#,##0.00000'
             
             # Guardar archivo
             wb.save(output_path)
