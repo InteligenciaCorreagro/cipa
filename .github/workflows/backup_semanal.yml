@@ -1,0 +1,78 @@
+name: Backup Semanal de Base de Datos
+
+on:
+  schedule:
+    # Ejecutar todos los domingos a las 2:00 AM UTC (9:00 PM sábado Bogotá)
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  backup-database:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Crear directorios necesarios
+        run: |
+          mkdir -p data backups
+      
+      - name: Descargar base de datos actual
+        uses: actions/download-artifact@v4
+        with:
+          name: base-datos-notas-credito
+          path: data/
+        continue-on-error: true
+      
+      - name: Verificar base de datos
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            echo "✅ Base de datos encontrada"
+            ls -lh data/notas_credito.db
+          else
+            echo "⚠️ Base de datos no encontrada, creando vacía para inicializar"
+            touch data/notas_credito.db
+          fi
+      
+      - name: Crear backup
+        run: |
+          if [ -s data/notas_credito.db ]; then
+            python backup_database.py crear --db-path data/notas_credito.db --backup-dir backups
+          else
+            echo "Base de datos vacía, saltando backup"
+          fi
+      
+      - name: Limpiar backups antiguos
+        run: |
+          python backup_database.py limpiar --backup-dir backups --dias 90
+      
+      - name: Listar backups
+        run: |
+          python backup_database.py listar --backup-dir backups
+      
+      - name: Cargar backups como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: backups-semanales
+          path: backups/
+          retention-days: 90
+      
+      - name: Enviar notificación por email (opcional)
+        if: always()
+        env:
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
+        run: |
+          echo "Backup semanal completado" > backup_log.txt
+          date >> backup_log.txt
+          ls -lh backups/ >> backup_log.txt
+          echo "Para descargar el backup, ir a Actions → Artifacts"

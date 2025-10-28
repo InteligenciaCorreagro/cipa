@@ -104,7 +104,8 @@ class ExcelProcessor:
             'cantidad_original': cantidad_original,  # CAMBIO: ahora es la cantidad base sin multiplicar
             'moneda': '1',
             'um_base': um_base,
-            'valor_total': valor_total  # NUEVO: valor subtotal del API
+            'valor_total': valor_total,  # NUEVO: valor subtotal del API
+            'codigo_producto_api': str(factura.get('f_cod_item', '')).strip()  # Para emparejar con notas crédito
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
@@ -155,15 +156,16 @@ class ExcelProcessor:
         
         um_upper = str(um_desc).upper().strip()
         
-        # Mapeo de unidades
-        if 'KILO' in um_upper or 'KG' in um_upper or 'KLS' in um_upper:
+        # Mapeo de unidades - IMPORTANTE: Evaluar términos más específicos primero
+        # BULTO debe evaluarse antes que UNIDAD porque contiene 'UN'
+        if 'BULTO' in um_upper or 'BT' in um_upper:
+            return 'KG'  # Los bultos se consideran en KG
+        elif 'KILO' in um_upper or 'KG' in um_upper or 'KLS' in um_upper:
             return 'KG'
         elif 'LITRO' in um_upper or 'LT' in um_upper:
             return 'LT'
         elif 'UNIDAD' in um_upper or 'UND' in um_upper or 'UN' in um_upper:
             return 'UN'
-        elif 'BULTO' in um_upper or 'BT' in um_upper:
-            return 'KG'  # Los bultos se consideran en KG
         else:
             # Por defecto UN
             return 'UN'

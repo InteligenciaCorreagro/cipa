@@ -1,13 +1,13 @@
-name: Reporte Diario de Facturas
+name: Reporte Diario desde Base de Datos
 
 on:
   schedule:
-    # Ejecutar todos los días a las 1:00 PM UTC = 8:00 AM Bogotá (UTC-5)
-    - cron: '0 13 * * *'
+    # Ejecutar todos los días a las 2:00 PM UTC = 9:00 AM Bogotá (UTC-5)
+    - cron: '0 14 * * *'
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
-  generar-reporte:
+  generar-reporte-diario:
     runs-on: ubuntu-latest
     
     steps:
@@ -34,40 +34,40 @@ jobs:
       
       - name: Crear directorios necesarios
         run: |
-          mkdir -p data output templates
+          mkdir -p data output
       
-      - name: Ejecutar proceso
+      - name: Descargar base de datos actual
+        uses: actions/download-artifact@v4
+        with:
+          name: base-datos-notas-credito
+          path: data/
+        continue-on-error: true
+      
+      - name: Verificar base de datos
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            echo "✅ Base de datos encontrada"
+            ls -lh data/notas_credito.db
+          else
+            echo "❌ Base de datos no encontrada"
+            echo "Ejecute el proceso principal al menos una vez para crear la BD"
+            exit 1
+          fi
+      
+      - name: Generar y enviar reporte
         env:
-          CONNI_KEY: ${{ secrets.CONNI_KEY }}
-          CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
           EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
           DB_PATH: ./data/notas_credito.db
-        run: python main.py
+        run: python reporte_diario.py
       
-      - name: Cargar Excel generado como artefacto
+      - name: Cargar reporte como artefacto
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reporte-facturas
-          path: output/*.xlsx
+          name: reporte-diario
+          path: output/reporte_diario_*.html
           retention-days: 30
-      
-      - name: Cargar reportes adicionales como artefacto
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reportes-adicionales
-          path: output/*.txt
-          retention-days: 30
-      
-      - name: Cargar base de datos como artefacto
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: base-datos-notas-credito
-          path: data/*.db
-          retention-days: 90
