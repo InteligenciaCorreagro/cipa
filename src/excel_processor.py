@@ -1,6 +1,8 @@
+# src/excel_processor.py
+
 from openpyxl import Workbook
 from openpyxl.styles import numbers, Font, PatternFill, Alignment
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 import logging
 import re
@@ -17,6 +19,79 @@ class ExcelProcessor:
     
     def __init__(self, template_path: str = None):
         self.template_path = template_path
+    
+    def _extraer_dias_condicion_pago(self, condicion_pago: str) -> int:
+        """
+        Extrae el número de días de la condición de pago
+        
+        Ejemplos:
+        - "CREDITO 15 DIAS" → 15
+        - "CREDITO 8 DIAS" → 8
+        - "CREDITO 30 DIAS" → 30
+        - "CONTADO" → 0
+        - "15 DIAS" → 15
+        
+        Args:
+            condicion_pago: Descripción de la condición de pago
+            
+        Returns:
+            Número de días (0 si es contado o no se encuentra)
+        """
+        if not condicion_pago:
+            return 0
+        
+        condicion_upper = str(condicion_pago).upper().strip()
+        
+        # Si es contado, retornar 0
+        if 'CONTADO' in condicion_upper:
+            return 0
+        
+        # Buscar patrón de número seguido de "DIAS" o "DIA"
+        # Ejemplos: "15 DIAS", "CREDITO 30 DIAS", "8 DIA"
+        match = re.search(r'(\d+)\s*DIA[S]?', condicion_upper)
+        if match:
+            dias = int(match.group(1))
+            logger.debug(f"Extraídos {dias} días de condición: '{condicion_pago}'")
+            return dias
+        
+        # Si no se encuentra patrón, buscar cualquier número
+        match = re.search(r'(\d+)', condicion_upper)
+        if match:
+            dias = int(match.group(1))
+            logger.debug(f"Extraído número {dias} de condición: '{condicion_pago}'")
+            return dias
+        
+        # Por defecto, retornar 0 (pago inmediato)
+        logger.debug(f"No se encontraron días en condición: '{condicion_pago}', usando 0")
+        return 0
+    
+    def _calcular_fecha_pago(self, fecha_factura, condicion_pago: str):
+        """
+        Calcula la fecha de pago sumando los días de la condición de pago a la fecha de factura
+        
+        Args:
+            fecha_factura: Fecha de la factura (datetime.date o datetime)
+            condicion_pago: Descripción de la condición de pago
+            
+        Returns:
+            Fecha de pago (datetime.date) o None si no hay fecha de factura
+        """
+        if not fecha_factura:
+            return None
+        
+        # Asegurar que es un objeto date
+        if isinstance(fecha_factura, datetime):
+            fecha_factura = fecha_factura.date()
+        
+        # Extraer días de la condición de pago
+        dias = self._extraer_dias_condicion_pago(condicion_pago)
+        
+        # Calcular fecha de pago
+        fecha_pago = fecha_factura + timedelta(days=dias)
+        
+        logger.debug(f"Fecha factura: {fecha_factura}, Condición: '{condicion_pago}' ({dias} días) → Fecha pago: {fecha_pago}")
+        
+        return fecha_pago
     
     def transformar_factura(self, factura: Dict) -> Dict:
         """
@@ -41,6 +116,10 @@ class ExcelProcessor:
                 fecha_factura = datetime.fromisoformat(str(fecha_str).replace('T00:00:00', ''))
             except (ValueError, AttributeError):
                 logger.warning(f"Error parseando fecha: {fecha_str}")
+
+        # Calcular fecha de pago
+        condicion_pago = factura.get('f_desc_cond_pago', '')
+        fecha_pago = self._calcular_fecha_pago(fecha_factura, condicion_pago)
 
         # Extraer IVA del grupo impositivo (solo el número)
         iva = self._extraer_iva(factura.get('f_desc_grupo_impositivo', ''))
@@ -86,10 +165,10 @@ class ExcelProcessor:
             'nombre_producto': str(factura.get('f_desc_item', '')).strip(),
             'codigo_subyacente': self.CODIGO_SUBYACENTE,
             'unidad_medida': unidad_medida,
-            'cantidad': cantidad_convertida,  # CAMBIO: ahora es la cantidad convertida
-            'precio_unitario': precio_unitario,  # CAMBIO: calculado desde valor_total
+            'cantidad': cantidad_convertida,
+            'precio_unitario': precio_unitario,
             'fecha_factura': fecha_factura,
-            'fecha_pago': None,  # No viene en la API
+            'fecha_pago': fecha_pago,  # AHORA CALCULADA
             'nit_comprador': str(factura.get('f_cliente_desp', '')).strip(),
             'nombre_comprador': str(factura.get('f_cliente_fact_razon_soc', '')).strip(),
             'nit_vendedor': self.NIT_VENDEDOR,
@@ -101,11 +180,12 @@ class ExcelProcessor:
             'activa_factura': '1',
             'activa_bodega': '1',
             'incentivo': '',
-            'cantidad_original': cantidad_original,  # CAMBIO: ahora es la cantidad base sin multiplicar
+            'cantidad_original': cantidad_original,
             'moneda': '1',
             'um_base': um_base,
-            'valor_total': valor_total,  # NUEVO: valor subtotal del API
-            'codigo_producto_api': str(factura.get('f_cod_item', '')).strip()  # Para emparejar con notas crédito
+            'valor_total': valor_total,
+            'codigo_producto_api': str(factura.get('f_cod_item', '')).strip(),
+            'condicion_pago': condicion_pago  # Para debug/auditoría
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
@@ -215,7 +295,7 @@ class ExcelProcessor:
             'Cantidad Original (5 decimales - separdor coma)',
             'Moneda (1,2,3)',
             'UM Base',
-            'Valor Total'  # NUEVA COLUMNA
+            'Valor Total'
         ]
 
         # Estilo de encabezado
@@ -230,7 +310,7 @@ class ExcelProcessor:
             cell.fill = header_fill
             cell.alignment = header_alignment
 
-        # Ajustar ancho de columnas (agregamos ancho para la nueva columna)
+        # Ajustar ancho de columnas
         column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15, 20]
         for col_num, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
@@ -277,8 +357,12 @@ class ExcelProcessor:
                     ws[f'G{idx}'] = factura['fecha_factura']
                     ws[f'G{idx}'].number_format = 'YYYY-MM-DD'
                 
-                # Fecha pago (vacía por ahora)
-                ws[f'H{idx}'] = ''
+                # Fecha pago (AHORA CALCULADA)
+                if factura['fecha_pago']:
+                    ws[f'H{idx}'] = factura['fecha_pago']
+                    ws[f'H{idx}'].number_format = 'YYYY-MM-DD'
+                else:
+                    ws[f'H{idx}'] = ''
                 
                 ws[f'I{idx}'] = factura['nit_comprador']
                 ws[f'J{idx}'] = factura['nombre_comprador']
@@ -299,7 +383,7 @@ class ExcelProcessor:
                 ws[f'U{idx}'] = factura['moneda']
                 ws[f'V{idx}'] = factura['um_base']
                 
-                # NUEVA COLUMNA: Valor Total con 5 decimales
+                # Valor Total con 5 decimales
                 ws[f'W{idx}'] = factura['valor_total']
                 ws[f'W{idx}'].number_format = '#,##0.00000'
             

@@ -1,9 +1,12 @@
+# src/business_rules.py
+
 """
 Módulo de Reglas de Negocio para Filtrado de Facturas
 Contiene la lógica de validación y filtrado según criterios de negocio
 """
 import logging
 from typing import List, Dict, Tuple
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +43,27 @@ class BusinessRulesValidator:
         'VS41200819'
     }
     
-    # Monto mínimo para procesar una factura (en pesos colombianos)
+    # Monto mínimo para procesar una factura COMPLETA (en pesos colombianos)
     MONTO_MINIMO = 498000.0
     
     def __init__(self):
         """Inicializa el validador de reglas de negocio"""
         logger.info(f"BusinessRulesValidator inicializado con {len(self.TIPOS_INVENTARIO_EXCLUIDOS)} tipos excluidos")
+        logger.info(f"Monto mínimo por factura completa: ${self.MONTO_MINIMO:,.2f}")
+    
+    def obtener_numero_factura_completo(self, factura: Dict) -> str:
+        """
+        Obtiene el número completo de la factura (prefijo + número)
+        
+        Args:
+            factura: Datos de la factura desde la API
+            
+        Returns:
+            Número completo de la factura
+        """
+        prefijo = str(factura.get('f_prefijo', '')).strip()
+        numero = str(factura.get('f_nrodocto', '')).strip()
+        return f"{prefijo}{numero}"
     
     def es_nota_credito(self, factura: Dict) -> bool:
         """
@@ -73,60 +91,55 @@ class BusinessRulesValidator:
         tipo_inventario = str(factura.get('f_cod_tipo_inv', '')).strip().upper()
         
         if not tipo_inventario:
-            logger.warning(f"Factura sin tipo de inventario: {factura.get('f_nrodocto')}")
+            logger.warning(f"Factura sin tipo de inventario: {self.obtener_numero_factura_completo(factura)}")
             return True  # Permitir si no tiene tipo definido
         
         return tipo_inventario not in self.TIPOS_INVENTARIO_EXCLUIDOS
     
-    def cumple_monto_minimo(self, factura: Dict) -> bool:
+    def agrupar_por_factura(self, facturas: List[Dict]) -> Dict[str, List[Dict]]:
         """
-        Valida si el valor total de la factura cumple con el monto mínimo
+        Agrupa las líneas por número de factura completo
         
         Args:
-            factura: Datos de la factura desde la API
+            facturas: Lista de líneas de facturas desde la API
             
         Returns:
-            True si cumple el monto mínimo, False en caso contrario
+            Diccionario donde la clave es el número de factura y el valor es la lista de líneas
         """
-        valor_total = factura.get('f_valor_subtotal_local', 0.0)
-        if valor_total is None:
-            valor_total = 0.0
+        facturas_agrupadas = defaultdict(list)
         
-        valor_total = float(valor_total)
+        for factura in facturas:
+            numero_completo = self.obtener_numero_factura_completo(factura)
+            facturas_agrupadas[numero_completo].append(factura)
         
-        return valor_total >= self.MONTO_MINIMO
+        return facturas_agrupadas
     
-    def validar_factura(self, factura: Dict) -> Tuple[bool, str]:
+    def calcular_total_factura(self, lineas: List[Dict]) -> float:
         """
-        Valida si una factura cumple con todas las reglas de negocio
+        Calcula el valor total de una factura sumando todas sus líneas
         
         Args:
-            factura: Datos de la factura desde la API
+            lineas: Lista de líneas que pertenecen a la misma factura
             
         Returns:
-            Tupla (es_valida, razon_rechazo)
-            - es_valida: True si la factura cumple todas las reglas
-            - razon_rechazo: Descripción de por qué fue rechazada (vacío si es válida)
+            Valor total de la factura
         """
-        # Las notas crédito se procesan por separado
-        if self.es_nota_credito(factura):
-            return True, ""
+        total = 0.0
+        for linea in lineas:
+            valor = linea.get('f_valor_subtotal_local', 0.0)
+            if valor is None:
+                valor = 0.0
+            total += float(valor)
         
-        # Validar tipo de inventario
-        if not self.tipo_inventario_permitido(factura):
-            tipo_inv = factura.get('f_cod_tipo_inv', 'N/A')
-            return False, f"Tipo de inventario excluido: {tipo_inv}"
-        
-        # Validar monto mínimo
-        if not self.cumple_monto_minimo(factura):
-            valor = factura.get('f_valor_subtotal_local', 0)
-            return False, f"Valor total ${valor:,.2f} no cumple monto mínimo ${self.MONTO_MINIMO:,.2f}"
-        
-        return True, ""
+        return total
     
     def filtrar_facturas(self, facturas: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
         """
         Filtra facturas según reglas de negocio y separa notas crédito
+        
+        IMPORTANTE: La validación de monto mínimo se aplica a la FACTURA COMPLETA,
+        no a cada línea individual. Si una factura tiene múltiples líneas, se suman
+        todas y se valida el total.
         
         Args:
             facturas: Lista de facturas desde la API
@@ -141,29 +154,93 @@ class BusinessRulesValidator:
         notas_credito = []
         facturas_rechazadas = []
         
+        # Separar notas crédito primero
+        facturas_regulares = []
         for factura in facturas:
-            # Separar notas crédito
             if self.es_nota_credito(factura):
                 notas_credito.append(factura)
+            else:
+                facturas_regulares.append(factura)
+        
+        logger.info(f"Total documentos: {len(facturas)} ({len(facturas_regulares)} facturas, {len(notas_credito)} notas crédito)")
+        
+        # Agrupar facturas regulares por número completo
+        facturas_agrupadas = self.agrupar_por_factura(facturas_regulares)
+        
+        logger.info(f"Facturas únicas a validar: {len(facturas_agrupadas)}")
+        
+        # Procesar cada factura completa
+        for numero_factura, lineas in facturas_agrupadas.items():
+            # Calcular total de la factura
+            total_factura = self.calcular_total_factura(lineas)
+            
+            # Validar monto mínimo a nivel de factura completa
+            if total_factura < self.MONTO_MINIMO:
+                # Rechazar TODAS las líneas de esta factura
+                razon = f"Valor total de factura ${total_factura:,.2f} no cumple monto mínimo ${self.MONTO_MINIMO:,.2f}"
+                
+                for linea in lineas:
+                    facturas_rechazadas.append({
+                        'factura': linea,
+                        'razon_rechazo': razon
+                    })
+                
+                logger.info(f"Factura rechazada por monto: {numero_factura} - Total: ${total_factura:,.2f} ({len(lineas)} líneas)")
                 continue
             
-            # Validar factura
-            es_valida, razon = self.validar_factura(factura)
+            # Si cumple el monto mínimo, validar cada línea por tipo de inventario
+            lineas_validas_factura = []
+            lineas_rechazadas_factura = []
             
-            if es_valida:
-                facturas_validas.append(factura)
-            else:
-                factura_info = {
-                    'factura': factura,
-                    'razon_rechazo': razon
-                }
-                facturas_rechazadas.append(factura_info)
+            for linea in lineas:
+                if not self.tipo_inventario_permitido(linea):
+                    tipo_inv = linea.get('f_cod_tipo_inv', 'N/A')
+                    razon = f"Tipo de inventario excluido: {tipo_inv}"
+                    lineas_rechazadas_factura.append({
+                        'factura': linea,
+                        'razon_rechazo': razon
+                    })
+                else:
+                    lineas_validas_factura.append(linea)
+            
+            # Si TODAS las líneas de la factura fueron rechazadas por tipo de inventario,
+            # registrar como rechazo
+            if len(lineas_validas_factura) == 0 and len(lineas_rechazadas_factura) > 0:
+                facturas_rechazadas.extend(lineas_rechazadas_factura)
+                logger.info(f"Factura rechazada por tipo inventario: {numero_factura} - {len(lineas)} líneas")
+            
+            # Si al menos una línea es válida, procesar toda la factura
+            # (esto incluye líneas mixtas: algunas válidas, algunas no)
+            elif len(lineas_validas_factura) > 0:
+                # DECISIÓN DE DISEÑO: Si una factura tiene líneas mixtas (algunas válidas, algunas excluidas),
+                # hay dos opciones:
+                # 
+                # OPCIÓN A: Procesar solo las líneas válidas
+                facturas_validas.extend(lineas_validas_factura)
                 
-                # Log de rechazo
-                numero = f"{factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}"
-                logger.info(f"Factura rechazada {numero}: {razon}")
+                # OPCIÓN B: Rechazar toda la factura si tiene al menos una línea excluida
+                # if len(lineas_rechazadas_factura) > 0:
+                #     razon = "Factura contiene líneas con tipos de inventario excluidos"
+                #     for linea in lineas:
+                #         facturas_rechazadas.append({
+                #             'factura': linea,
+                #             'razon_rechazo': razon
+                #         })
+                #     logger.info(f"Factura rechazada por líneas mixtas: {numero_factura}")
+                # else:
+                #     facturas_validas.extend(lineas_validas_factura)
+                
+                # Actualmente implementado: OPCIÓN A (procesar líneas válidas)
+                if len(lineas_rechazadas_factura) > 0:
+                    facturas_rechazadas.extend(lineas_rechazadas_factura)
+                    logger.info(f"Factura {numero_factura}: {len(lineas_validas_factura)} líneas válidas, "
+                              f"{len(lineas_rechazadas_factura)} líneas rechazadas por tipo inventario")
+                else:
+                    logger.info(f"Factura válida: {numero_factura} - Total: ${total_factura:,.2f} ({len(lineas)} líneas)")
         
-        logger.info(f"Filtrado completado: {len(facturas_validas)} válidas, "
-                   f"{len(notas_credito)} notas crédito, {len(facturas_rechazadas)} rechazadas")
+        logger.info(f"\nRESUMEN FILTRADO:")
+        logger.info(f"  - Líneas válidas: {len(facturas_validas)}")
+        logger.info(f"  - Notas crédito: {len(notas_credito)}")
+        logger.info(f"  - Líneas rechazadas: {len(facturas_rechazadas)}")
         
         return facturas_validas, notas_credito, facturas_rechazadas
