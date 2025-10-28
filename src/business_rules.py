@@ -78,9 +78,50 @@ class BusinessRulesValidator:
         prefijo = str(factura.get('f_prefijo', '')).strip().upper()
         return prefijo.startswith('N')
     
+    def _obtener_tipo_inventario_normalizado(self, factura: Dict) -> str:
+        """
+        Obtiene el tipo de inventario normalizado de una factura.
+        
+        CRÍTICO: Maneja múltiples nombres de campo y normaliza espacios en blanco.
+        La API puede enviar el tipo de inventario en diferentes campos:
+        - f_cod_tipo_inv
+        - f_tipo_inv
+        
+        Además, la API puede enviar valores con espacios en blanco que deben ser
+        normalizados antes de comparar con la lista de excluidos.
+        
+        Args:
+            factura: Datos de la factura desde la API
+            
+        Returns:
+            Tipo de inventario normalizado (sin espacios, mayúsculas) o cadena vacía
+        """
+        # Intentar obtener de múltiples campos posibles
+        tipo_inventario_raw = (
+            factura.get('f_cod_tipo_inv') or 
+            factura.get('f_tipo_inv') or 
+            ''
+        )
+        
+        # Normalizar: convertir a string, quitar espacios, mayúsculas
+        tipo_inventario = str(tipo_inventario_raw).strip().upper()
+        
+        # Log de auditoría si se detectan espacios (problema común de la API)
+        if tipo_inventario_raw and str(tipo_inventario_raw) != str(tipo_inventario_raw).strip():
+            logger.warning(
+                f"⚠️ Tipo de inventario con espacios detectado: '{tipo_inventario_raw}' "
+                f"→ normalizado a: '{tipo_inventario}' "
+                f"(Factura: {self.obtener_numero_factura_completo(factura)})"
+            )
+        
+        return tipo_inventario
+    
     def tipo_inventario_permitido(self, factura: Dict) -> bool:
         """
         Valida si el tipo de inventario de la factura está permitido
+        
+        IMPORTANTE: Normaliza el tipo de inventario removiendo espacios y convirtiendo a mayúsculas
+        antes de comparar con la lista de excluidos.
         
         Args:
             factura: Datos de la factura desde la API
@@ -88,13 +129,20 @@ class BusinessRulesValidator:
         Returns:
             True si el tipo está permitido, False si está excluido
         """
-        tipo_inventario = str(factura.get('f_cod_tipo_inv', '')).strip().upper()
+        tipo_inventario = self._obtener_tipo_inventario_normalizado(factura)
         
         if not tipo_inventario:
             logger.warning(f"Factura sin tipo de inventario: {self.obtener_numero_factura_completo(factura)}")
             return True  # Permitir si no tiene tipo definido
         
-        return tipo_inventario not in self.TIPOS_INVENTARIO_EXCLUIDOS
+        # Comparar con lista de excluidos (ya normalizada en el conjunto)
+        es_permitido = tipo_inventario not in self.TIPOS_INVENTARIO_EXCLUIDOS
+        
+        if not es_permitido:
+            logger.debug(f"Tipo de inventario excluido detectado: '{tipo_inventario}' "
+                        f"(Factura: {self.obtener_numero_factura_completo(factura)})")
+        
+        return es_permitido
     
     def agrupar_por_factura(self, facturas: List[Dict]) -> Dict[str, List[Dict]]:
         """
@@ -194,7 +242,7 @@ class BusinessRulesValidator:
             
             for linea in lineas:
                 if not self.tipo_inventario_permitido(linea):
-                    tipo_inv = linea.get('f_cod_tipo_inv', 'N/A')
+                    tipo_inv = self._obtener_tipo_inventario_normalizado(linea)
                     razon = f"Tipo de inventario excluido: {tipo_inv}"
                     lineas_rechazadas_factura.append({
                         'factura': linea,
