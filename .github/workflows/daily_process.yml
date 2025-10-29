@@ -188,9 +188,9 @@ jobs:
               COMMIT_MSG="🗄️ Actualización automática BD - ${FECHA}
 
 Estadísticas:
-- Notas pendientes: ${NOTAS_PENDIENTES}
-- Notas aplicadas: ${NOTAS_APLICADAS}
-- Aplicaciones hoy: ${APLICACIONES_HOY}
+  * Notas pendientes: ${NOTAS_PENDIENTES}
+  * Notas aplicadas: ${NOTAS_APLICADAS}
+  * Aplicaciones hoy: ${APLICACIONES_HOY}
 
 Ejecución: ${GITHUB_RUN_NUMBER}
 Workflow: ${GITHUB_WORKFLOW}"
