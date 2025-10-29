@@ -185,15 +185,8 @@ jobs:
               NOTAS_APLICADAS=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM notas_credito WHERE estado='APLICADA';" 2>/dev/null || echo "0")
               APLICACIONES_HOY=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM aplicaciones_notas WHERE DATE(fecha_aplicacion) = DATE('now');" 2>/dev/null || echo "0")
               
-              COMMIT_MSG="🗄️ Actualización automática BD - ${FECHA}
-
-Estadísticas:
-  * Notas pendientes: ${NOTAS_PENDIENTES}
-  * Notas aplicadas: ${NOTAS_APLICADAS}
-  * Aplicaciones hoy: ${APLICACIONES_HOY}
-
-Ejecución: ${GITHUB_RUN_NUMBER}
-Workflow: ${GITHUB_WORKFLOW}"
+              # Mensaje de commit simplificado en una línea
+              COMMIT_MSG="🗄️ Actualización automática BD ${FECHA} | Pendientes: ${NOTAS_PENDIENTES} | Aplicadas: ${NOTAS_APLICADAS} | Aplicaciones hoy: ${APLICACIONES_HOY} | Run: ${GITHUB_RUN_NUMBER}"
               
               git commit -m "$COMMIT_MSG"
               
