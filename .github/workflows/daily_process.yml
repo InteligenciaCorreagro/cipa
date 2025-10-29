@@ -10,12 +10,24 @@ jobs:
   procesar-facturas:
     runs-on: ubuntu-latest
     
+    # CRÍTICO: Dar permisos para hacer commits al repositorio
+    permissions:
+      contents: write
+    
     steps:
       # ============================================================
       # 1. PREPARACIÓN DEL ENTORNO
       # ============================================================
       - name: 📥 Descargar código del repositorio
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # Obtener todo el historial
+      
+      - name: 🔧 Configurar Git para commits automáticos
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
       
       - name: 🐍 Configurar Python 3.11
         uses: actions/setup-python@v5
@@ -41,27 +53,31 @@ jobs:
           echo "✅ Directorios creados"
       
       # ============================================================
-      # 2. RECUPERAR BASE DE DATOS DE EJECUCIÓN ANTERIOR
+      # 2. VERIFICAR BASE DE DATOS EXISTENTE (YA ESTÁ EN EL REPO)
       # ============================================================
-      - name: 💾 Descargar base de datos de ejecución anterior
-        uses: actions/download-artifact@v4
-        with:
-          name: base-datos-notas-credito
-          path: data/
-        continue-on-error: true
-        # continue-on-error permite que falle en la primera ejecución
-      
-      - name: 🔍 Verificar estado de la base de datos
+      - name: 📊 Verificar y mostrar estado de la base de datos
         run: |
+          # La base de datos ya está en el repositorio (si existe)
           if [ -f data/notas_credito.db ]; then
-            echo "✅ Base de datos encontrada de ejecución anterior"
+            echo "✅ Base de datos encontrada en el repositorio"
             echo "📊 Información de la BD:"
             ls -lh data/notas_credito.db
             
-            # Mostrar estadísticas
-            sqlite3 data/notas_credito.db "SELECT 'Notas pendientes: ' || COUNT(*) FROM notas_credito WHERE estado='PENDIENTE';"
-            sqlite3 data/notas_credito.db "SELECT 'Notas aplicadas: ' || COUNT(*) FROM notas_credito WHERE estado='APLICADA';"
-            sqlite3 data/notas_credito.db "SELECT 'Total aplicaciones: ' || COUNT(*) FROM aplicaciones_notas;"
+            # Crear backup antes de procesar
+            cp data/notas_credito.db data/notas_credito.db.backup
+            echo "✅ Backup creado: data/notas_credito.db.backup"
+            
+            # Mostrar estadísticas ANTES del proceso
+            echo ""
+            echo "📈 Estadísticas ANTES del proceso:"
+            sqlite3 data/notas_credito.db "SELECT 'Notas pendientes: ' || COUNT(*) || ' (Saldo: $' || COALESCE(SUM(saldo_pendiente), 0) || ')' FROM notas_credito WHERE estado='PENDIENTE';" || echo "Error al consultar"
+            sqlite3 data/notas_credito.db "SELECT 'Notas aplicadas: ' || COUNT(*) FROM notas_credito WHERE estado='APLICADA';" || echo "Error al consultar"
+            sqlite3 data/notas_credito.db "SELECT 'Total aplicaciones: ' || COUNT(*) FROM aplicaciones_notas;" || echo "Error al consultar"
+            sqlite3 data/notas_credito.db "SELECT 'Facturas rechazadas: ' || COUNT(*) FROM facturas_rechazadas;" || echo "Error al consultar"
+            
+            echo ""
+            echo "📅 Última actualización:"
+            sqlite3 data/notas_credito.db "SELECT 'Última nota registrada: ' || MAX(fecha_registro) FROM notas_credito;" || echo "Sin notas registradas"
           else
             echo "⚠️  Primera ejecución: Base de datos se creará automáticamente"
             echo "📝 Se inicializarán las tablas:"
@@ -95,6 +111,7 @@ jobs:
           echo "=================================================="
           echo "📅 Fecha: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "🕐 Zona horaria: America/Bogota"
+          echo "🗄️  Base de datos: ./data/notas_credito.db"
           echo ""
           
           # Ejecutar proceso principal
@@ -106,9 +123,101 @@ jobs:
           echo "=================================================="
       
       # ============================================================
-      # 4. GUARDAR RESULTADOS
+      # 4. MOSTRAR ESTADÍSTICAS POST-PROCESO
       # ============================================================
-      - name: 📊 Cargar Excel generado
+      - name: 📈 Mostrar estadísticas DESPUÉS del proceso
+        if: always()
+        run: |
+          echo ""
+          echo "=================================================="
+          echo "📊 ESTADÍSTICAS POST-PROCESO"
+          echo "=================================================="
+          
+          if [ -f data/notas_credito.db ]; then
+            echo "💾 Estado de Base de Datos:"
+            sqlite3 data/notas_credito.db "SELECT '  Notas pendientes: ' || COUNT(*) || ' (Saldo: $' || COALESCE(SUM(saldo_pendiente), 0) || ')' FROM notas_credito WHERE estado='PENDIENTE';" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Notas aplicadas: ' || COUNT(*) FROM notas_credito WHERE estado='APLICADA';" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Total aplicaciones histórico: ' || COUNT(*) FROM aplicaciones_notas;" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Facturas rechazadas histórico: ' || COUNT(*) FROM facturas_rechazadas;" || echo "Error"
+            
+            echo ""
+            echo "📋 Aplicaciones de HOY:"
+            sqlite3 data/notas_credito.db "SELECT '  ' || numero_nota || ' → ' || numero_factura || ' ($' || valor_aplicado || ')' FROM aplicaciones_notas WHERE DATE(fecha_aplicacion) = DATE('now') LIMIT 10;" || echo "Sin aplicaciones hoy"
+            
+            echo ""
+            echo "🆕 Notas nuevas registradas HOY:"
+            sqlite3 data/notas_credito.db "SELECT '  ' || numero_nota || ' - $' || valor_total || ' (' || nombre_cliente || ')' FROM notas_credito WHERE DATE(fecha_registro) = DATE('now') LIMIT 10;" || echo "Sin notas nuevas hoy"
+          fi
+          
+          echo ""
+          echo "📁 Archivos generados:"
+          if [ -d output ]; then
+            ls -lh output/ || echo "Sin archivos generados"
+          fi
+          
+          echo ""
+          echo "=================================================="
+      
+      # ============================================================
+      # 5. PERSISTIR BASE DE DATOS EN EL REPOSITORIO
+      # ============================================================
+      - name: 💾 Guardar cambios de la base de datos en el repositorio
+        if: always()
+        run: |
+          echo "=================================================="
+          echo "💾 PERSISTIENDO BASE DE DATOS EN EL REPOSITORIO"
+          echo "=================================================="
+          
+          # Verificar si hay cambios en la BD
+          if [ -f data/notas_credito.db ]; then
+            # Agregar la BD al staging
+            git add data/notas_credito.db
+            
+            # Verificar si hay cambios
+            if git diff --staged --quiet; then
+              echo "ℹ️  No hay cambios en la base de datos"
+            else
+              # Hacer commit con información detallada
+              FECHA=$(date '+%Y-%m-%d %H:%M:%S')
+              
+              # Obtener estadísticas para el mensaje de commit
+              NOTAS_PENDIENTES=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM notas_credito WHERE estado='PENDIENTE';" 2>/dev/null || echo "0")
+              NOTAS_APLICADAS=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM notas_credito WHERE estado='APLICADA';" 2>/dev/null || echo "0")
+              APLICACIONES_HOY=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM aplicaciones_notas WHERE DATE(fecha_aplicacion) = DATE('now');" 2>/dev/null || echo "0")
+              
+              COMMIT_MSG="🗄️ Actualización automática BD - ${FECHA}
+
+Estadísticas:
+- Notas pendientes: ${NOTAS_PENDIENTES}
+- Notas aplicadas: ${NOTAS_APLICADAS}
+- Aplicaciones hoy: ${APLICACIONES_HOY}
+
+Ejecución: ${GITHUB_RUN_NUMBER}
+Workflow: ${GITHUB_WORKFLOW}"
+              
+              git commit -m "$COMMIT_MSG"
+              
+              # Push al repositorio
+              echo "📤 Enviando cambios al repositorio..."
+              git push
+              
+              echo "✅ Base de datos actualizada y persistida en el repositorio"
+              echo ""
+              echo "📊 Cambios guardados:"
+              echo "  - Notas pendientes: ${NOTAS_PENDIENTES}"
+              echo "  - Notas aplicadas: ${NOTAS_APLICADAS}"
+              echo "  - Aplicaciones hoy: ${APLICACIONES_HOY}"
+            fi
+          else
+            echo "⚠️  Base de datos no encontrada, no hay nada que persistir"
+          fi
+          
+          echo "=================================================="
+      
+      # ============================================================
+      # 6. GUARDAR REPORTES COMO ARTIFACTS (TEMPORAL)
+      # ============================================================
+      - name: 📊 Cargar Excel generado como artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -116,7 +225,7 @@ jobs:
           path: output/*.xlsx
           retention-days: 30
       
-      - name: 📝 Cargar reportes de texto
+      - name: 📝 Cargar reportes de texto como artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -125,53 +234,32 @@ jobs:
           retention-days: 30
       
       # ============================================================
-      # 5. PERSISTIR BASE DE DATOS PARA PRÓXIMA EJECUCIÓN
+      # 7. CREAR BACKUP DE SEGURIDAD (ARTIFACT)
       # ============================================================
-      - name: 💾 Guardar base de datos actualizada
+      - name: 💾 Crear backup de seguridad como artifact
+        if: always()
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            # Crear directorio de backups
+            mkdir -p backups
+            
+            # Copiar BD con timestamp
+            TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+            cp data/notas_credito.db backups/notas_credito_${TIMESTAMP}.db
+            
+            echo "✅ Backup creado: backups/notas_credito_${TIMESTAMP}.db"
+          fi
+      
+      - name: 📦 Subir backup como artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: base-datos-notas-credito
-          path: data/*.db
-          retention-days: 90
-          # La BD se mantiene 90 días para histórico
+          name: backup-bd-${{ github.run_number }}
+          path: backups/*.db
+          retention-days: 7
       
       # ============================================================
-      # 6. MOSTRAR RESUMEN DE EJECUCIÓN
-      # ============================================================
-      - name: 📈 Mostrar resumen de ejecución
-        if: always()
-        run: |
-          echo ""
-          echo "=================================================="
-          echo "📊 RESUMEN DE EJECUCIÓN"
-          echo "=================================================="
-          
-          if [ -f data/notas_credito.db ]; then
-            echo "💾 Estado de Base de Datos:"
-            sqlite3 data/notas_credito.db "SELECT '  Notas pendientes: ' || COUNT(*) || ' (Saldo: $' || COALESCE(SUM(saldo_pendiente), 0) || ')' FROM notas_credito WHERE estado='PENDIENTE';"
-            sqlite3 data/notas_credito.db "SELECT '  Notas aplicadas: ' || COUNT(*) FROM notas_credito WHERE estado='APLICADA';"
-            sqlite3 data/notas_credito.db "SELECT '  Total aplicaciones histórico: ' || COUNT(*) FROM aplicaciones_notas;"
-            sqlite3 data/notas_credito.db "SELECT '  Facturas rechazadas histórico: ' || COUNT(*) FROM facturas_rechazadas;"
-            
-            echo ""
-            echo "📋 Aplicaciones de HOY:"
-            sqlite3 data/notas_credito.db "SELECT '  ' || numero_nota || ' → ' || numero_factura || ' ($' || valor_aplicado || ')' FROM aplicaciones_notas WHERE DATE(fecha_aplicacion) = DATE('now') LIMIT 10;"
-          fi
-          
-          echo ""
-          echo "📁 Archivos generados:"
-          if [ -d output ]; then
-            ls -lh output/
-          fi
-          
-          echo ""
-          echo "=================================================="
-          echo "✅ EJECUCIÓN FINALIZADA"
-          echo "=================================================="
-      
-      # ============================================================
-      # 7. NOTIFICACIÓN EN CASO DE ERROR (OPCIONAL)
+      # 8. NOTIFICACIÓN EN CASO DE ERROR
       # ============================================================
       - name: 🚨 Notificar error (si falla)
         if: failure()
@@ -181,6 +269,12 @@ jobs:
           echo "  1. ¿Las credenciales están configuradas correctamente?"
           echo "  2. ¿La API de SIESA está disponible?"
           echo "  3. ¿El servidor SMTP está accesible?"
+          echo "  4. ¿La base de datos se pudo actualizar?"
           echo ""
           echo "📧 Se recomienda revisar los secrets en:"
           echo "   Settings → Secrets and variables → Actions"
+          echo ""
+          echo "🔄 Si la BD se corrompió, restaurar desde el backup:"
+          echo "   - Descargar artifact 'backup-bd-XXX'"
+          echo "   - Reemplazar data/notas_credito.db"
+          echo "   - Hacer commit manual"
