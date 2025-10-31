@@ -202,15 +202,25 @@ class BusinessRulesValidator:
         notas_credito = []
         facturas_rechazadas = []
         
-        # Separar notas crédito primero
+        # Separar notas crédito primero y validar tipo de inventario
         facturas_regulares = []
         for factura in facturas:
             if self.es_nota_credito(factura):
-                notas_credito.append(factura)
+                # Validar tipo de inventario en notas de crédito
+                if not self.tipo_inventario_permitido(factura):
+                    tipo_inv = self._obtener_tipo_inventario_normalizado(factura)
+                    razon = f"Nota crédito con tipo de inventario excluido: {tipo_inv}"
+                    facturas_rechazadas.append({
+                        'factura': factura,
+                        'razon_rechazo': razon
+                    })
+                    logger.info(f"Nota crédito rechazada por tipo inventario: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo: {tipo_inv}")
+                else:
+                    notas_credito.append(factura)
             else:
                 facturas_regulares.append(factura)
-        
-        logger.info(f"Total documentos: {len(facturas)} ({len(facturas_regulares)} facturas, {len(notas_credito)} notas crédito)")
+
+        logger.info(f"Total documentos: {len(facturas)} ({len(facturas_regulares)} facturas, {len(notas_credito)} notas crédito válidas, {len(facturas_rechazadas)} documentos rechazados)")
         
         # Agrupar facturas regulares por número completo
         facturas_agrupadas = self.agrupar_por_factura(facturas_regulares)

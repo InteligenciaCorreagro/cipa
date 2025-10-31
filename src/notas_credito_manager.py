@@ -165,6 +165,10 @@ class NotasCreditoManager:
             nombre_producto = str(nota.get('f_desc_item', '')).strip()
             valor_total = float(nota.get('f_valor_subtotal_local', 0.0) or 0.0)
             cantidad = float(nota.get('f_cant_base', 0.0) or 0.0)
+
+            # Extraer tipo de inventario (puede venir en f_cod_tipo_inv o f_tipo_inv)
+            tipo_inventario_raw = nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or ''
+            tipo_inventario = str(tipo_inventario_raw).strip().upper()
             
             # Verificar si ya existe
             cursor.execute(
@@ -179,13 +183,13 @@ class NotasCreditoManager:
             
             # Insertar nota crédito
             cursor.execute('''
-                INSERT INTO notas_credito 
-                (numero_nota, fecha_nota, nit_cliente, nombre_cliente, 
-                 codigo_producto, nombre_producto, valor_total, cantidad,
+                INSERT INTO notas_credito
+                (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
+                 codigo_producto, nombre_producto, tipo_inventario, valor_total, cantidad,
                  saldo_pendiente, cantidad_pendiente, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')
             ''', (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
-                  codigo_producto, nombre_producto, valor_total, cantidad,
+                  codigo_producto, nombre_producto, tipo_inventario, valor_total, cantidad,
                   valor_total, cantidad))
             
             conn.commit()

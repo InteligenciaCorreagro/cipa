@@ -40,3 +40,12 @@ Thumbs.db
 # Logs (si se generan)
 *.log
 logs/
+
+# Reportes de limpieza
+reporte_limpieza_*.txt
+
+# Base de datos de archivo (no versionarla por tamaño)
+data/archivo_notas.db
+
+# API - Variables de entorno locales
+api/.env
