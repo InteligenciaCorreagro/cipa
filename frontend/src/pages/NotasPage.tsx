@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Eye, ChevronLeft, ChevronRight, ServerCrash, RefreshCw } from 'lucide-react'
 
 const LIMITE = 50
 
@@ -24,7 +24,7 @@ export default function NotasPage() {
   const [estado, setEstado] = useState<string>('')
   const [offset, setOffset] = useState(0)
 
-  const { data, isLoading } = useNotas({
+  const { data, isLoading, error, refetch } = useNotas({
     estado: estado || undefined,
     nit_cliente: search || undefined,
     limite: LIMITE,
@@ -140,7 +140,24 @@ export default function NotasPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {error ? (
+            <div className="flex flex-col items-center justify-center h-64 space-y-4">
+              <ServerCrash className="h-12 w-12 text-muted-foreground" />
+              <div className="text-center space-y-2">
+                <h3 className="text-lg font-semibold">Error al cargar las notas</h3>
+                <p className="text-muted-foreground max-w-md">
+                  No se pudo conectar con la API. Por favor, verifica que el servidor esté funcionando.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Error: {(error as any)?.message || 'Error de conexión'}
+                </p>
+              </div>
+              <Button onClick={() => refetch()}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reintentar
+              </Button>
+            </div>
+          ) : isLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-muted-foreground">Cargando notas...</div>
             </div>

@@ -1,14 +1,41 @@
 import { useEstadisticas, useNotasPorEstado } from '@/hooks/useNotas'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, DollarSign, AlertCircle, CheckCircle } from 'lucide-react'
+import { FileText, DollarSign, AlertCircle, CheckCircle, RefreshCw, ServerCrash } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981']
 
 export default function DashboardPage() {
-  const { data: estadisticas, isLoading: loadingEstadisticas } = useEstadisticas()
-  const { data: notasPorEstado, isLoading: loadingPorEstado } = useNotasPorEstado()
+  const { data: estadisticas, isLoading: loadingEstadisticas, error: errorEstadisticas, refetch: refetchEstadisticas } = useEstadisticas()
+  const { data: notasPorEstado, isLoading: loadingPorEstado, error: errorPorEstado, refetch: refetchPorEstado } = useNotasPorEstado()
+
+  // Manejo de errores
+  if (errorEstadisticas || errorPorEstado) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <ServerCrash className="h-16 w-16 text-muted-foreground" />
+        <div className="text-center space-y-2">
+          <h3 className="text-lg font-semibold">Error al cargar el dashboard</h3>
+          <p className="text-muted-foreground max-w-md">
+            No se pudo conectar con la API. Por favor, verifica que el servidor esté funcionando en{' '}
+            <code className="bg-muted px-1 py-0.5 rounded">http://localhost:5000</code>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Error: {(errorEstadisticas as any)?.message || (errorPorEstado as any)?.message || 'Error de conexión'}
+          </p>
+        </div>
+        <Button onClick={() => {
+          refetchEstadisticas()
+          refetchPorEstado()
+        }}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Reintentar
+        </Button>
+      </div>
+    )
+  }
 
   if (loadingEstadisticas || loadingPorEstado) {
     return (

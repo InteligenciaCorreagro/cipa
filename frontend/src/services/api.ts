@@ -37,24 +37,38 @@ api.interceptors.response.use(
   async (error: AxiosError<ApiError>) => {
     const originalRequest = error.config
 
+    // Solo intentar refresh si es un error 401 Y tenemos tokens
     if (error.response?.status === 401 && originalRequest) {
+      const refreshToken = localStorage.getItem('refresh_token')
+
+      // Si no hay refresh token, no intentar refresh
+      if (!refreshToken) {
+        return Promise.reject(error)
+      }
+
+      // Evitar loops infinitos - no reintentar el endpoint de refresh
+      if (originalRequest.url?.includes('/auth/refresh')) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+
       // Intentar refrescar el token
       try {
-        const refreshToken = localStorage.getItem('refresh_token')
-        if (refreshToken) {
-          const response = await axios.post(`${API_URL}/api/auth/refresh`, {}, {
-            headers: {
-              Authorization: `Bearer ${refreshToken}`,
-            },
-          })
+        const response = await axios.post(`${API_URL}/api/auth/refresh`, {}, {
+          headers: {
+            Authorization: `Bearer ${refreshToken}`,
+          },
+        })
 
-          const { access_token } = response.data
-          localStorage.setItem('access_token', access_token)
+        const { access_token } = response.data
+        localStorage.setItem('access_token', access_token)
 
-          // Reintentar la petición original
-          originalRequest.headers.Authorization = `Bearer ${access_token}`
-          return api(originalRequest)
-        }
+        // Reintentar la petición original
+        originalRequest.headers.Authorization = `Bearer ${access_token}`
+        return api(originalRequest)
       } catch (refreshError) {
         // Si falla el refresh, limpiar tokens y redirigir al login
         localStorage.removeItem('access_token')
@@ -63,6 +77,11 @@ api.interceptors.response.use(
         window.location.href = '/login'
         return Promise.reject(refreshError)
       }
+    }
+
+    // Para errores de red (ERR_NETWORK), no redirigir
+    if (error.code === 'ERR_NETWORK') {
+      return Promise.reject(error)
     }
 
     return Promise.reject(error)
