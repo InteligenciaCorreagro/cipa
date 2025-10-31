@@ -40,3 +40,6 @@ Thumbs.db
 # Logs (si se generan)
 *.log
 logs/
+
+# Reportes de limpieza
+reporte_limpieza_*.txt
