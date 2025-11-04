@@ -175,7 +175,7 @@ def login():
     return jsonify({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "usuario": {
+        "user": {
             "id": usuario['id'],
             "username": usuario['username'],
             "email": usuario['email'],
@@ -189,9 +189,30 @@ def login():
 def refresh():
     """Obtener nuevo access token usando refresh token"""
     identity = get_jwt_identity()
-    claims = get_jwt()
 
-    access_token = create_access_token(identity=identity, additional_claims=claims)
+    # Obtener datos actualizados del usuario desde la base de datos
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT username, rol
+        FROM usuarios
+        WHERE id = ? AND activo = 1
+    ''', (identity,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "Usuario no encontrado o inactivo"}), 401
+
+    # Crear nuevo access token solo con los claims personalizados necesarios
+    access_token = create_access_token(
+        identity=identity,
+        additional_claims={
+            'username': row['username'],
+            'rol': row['rol']
+        }
+    )
     return jsonify({"access_token": access_token}), 200
 
 
@@ -288,7 +309,7 @@ def listar_notas():
     conn.close()
 
     return jsonify({
-        "notas": notas,
+        "items": notas,
         "total": total,
         "limite": limite,
         "offset": offset,
@@ -342,7 +363,7 @@ def notas_por_estado():
     resultados = [dict(row) for row in cursor.fetchall()]
     conn.close()
 
-    return jsonify({"estados": resultados}), 200
+    return jsonify(resultados), 200
 
 
 @app.route('/api/notas/estadisticas', methods=['GET'])
@@ -399,7 +420,7 @@ def obtener_aplicaciones(numero_nota):
     aplicaciones = [dict(row) for row in cursor.fetchall()]
     conn.close()
 
-    return jsonify({"aplicaciones": aplicaciones}), 200
+    return jsonify(aplicaciones), 200
 
 
 # =============================================================================
