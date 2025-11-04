@@ -27,31 +27,49 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, get_jwt
 )
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from dotenv import load_dotenv
 
-# Agregar src al path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+# =============================================================================
+# PYTHONPATH FIX: aseguramos que 'backend' (padre de 'core') esté en sys.path
+# Estructura esperada:
+# PROCESO ACTUAL/
+#   backend/
+#     api/app.py   <-- este archivo
+#     api/auth.py
+#     core/archivador_notas.py
+# =============================================================================
+CURRENT_FILE = Path(__file__).resolve()
+API_DIR = CURRENT_FILE.parent                 # .../backend/api
+BACKEND_DIR = API_DIR.parent                  # .../backend
 
+# Insertamos 'backend' y 'backend/api' al inicio del sys.path
+sys.path.insert(0, str(BACKEND_DIR))
+sys.path.insert(0, str(API_DIR))
+
+# (Opcional de depuración)
+# import pprint; print(">> sys.path head:"); pprint.pprint(sys.path[:5])
+
+# Imports locales (ya con rutas correctas)
 from auth import AuthManager
-from archivador_notas import ArchivadorNotas
+from core.archivador_notas import ArchivadorNotas
 
-# Cargar variables de entorno
+# =============================================================================
+# Carga de variables de entorno y logging
+# =============================================================================
 load_dotenv()
 
-# Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Crear app Flask
+# =============================================================================
+# App Flask y configuración
+# =============================================================================
 app = Flask(__name__)
 
-# Configuración
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
@@ -59,23 +77,42 @@ app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
 # JWT Manager
 jwt = JWTManager(app)
 
-# CORS (configurar según necesidades)
+# CORS (ajusta origins según sea necesario)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Rate Limiter
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
+# =============================================================================
+# Rate Limiter (compatibilidad v2/v3 de Flask-Limiter)
+# =============================================================================
+try:
+    # Flask-Limiter v3+
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
 
-# Instanciar managers
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
+    )
+except Exception:
+    # Fallback a v2 (firma antigua)
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"
+    )
+
+# =============================================================================
+# Instancias de managers y DB
+# =============================================================================
 auth_manager = AuthManager()
 archivador = ArchivadorNotas()
 
-# Base de datos
-DB_PATH = Path(__file__).parent.parent / 'data' / 'notas_credito.db'
+DB_PATH = BACKEND_DIR / 'data' / 'notas_credito.db'
 
 
 def get_db_connection():
@@ -115,7 +152,12 @@ def login():
 
     username = data['username']
     password = data['password']
-    ip_address = get_remote_address()
+    # IP del cliente (para auditoría)
+    try:
+        from flask_limiter.util import get_remote_address as _get_ip
+        ip_address = _get_ip()
+    except Exception:
+        ip_address = request.remote_addr or '0.0.0.0'
 
     # Autenticar
     autenticado, usuario, mensaje = auth_manager.autenticar(username, password, ip_address)
@@ -128,11 +170,7 @@ def login():
         'username': usuario['username'],
         'rol': usuario['rol']
     })
-
     refresh_token = create_refresh_token(identity=usuario['id'])
-
-    # Registrar sesión (opcional, para tracking)
-    # auth_manager.registrar_sesion(usuario['id'], access_jti, refresh_jti, ip_address, request.headers.get('User-Agent'))
 
     return jsonify({
         "access_token": access_token,
@@ -154,7 +192,6 @@ def refresh():
     claims = get_jwt()
 
     access_token = create_access_token(identity=identity, additional_claims=claims)
-
     return jsonify({"access_token": access_token}), 200
 
 
@@ -162,9 +199,9 @@ def refresh():
 @jwt_required()
 def logout():
     """Cerrar sesión"""
-    jti = get_jwt()['jti']
+    # Si manejas lista negra, aquí invalidas el jti
+    # jti = get_jwt()['jti']
     # auth_manager.invalidar_sesion(jti)
-
     return jsonify({"mensaje": "Sesión cerrada exitosamente"}), 200
 
 
@@ -204,14 +241,6 @@ def listar_notas():
         - fecha_hasta: YYYY-MM-DD
         - limite: Máximo de resultados (default: 100)
         - offset: Paginación (default: 0)
-
-    Response:
-        {
-            "notas": [...],
-            "total": 123,
-            "pagina": 1,
-            "total_paginas": 5
-        }
     """
     # Parámetros de filtro
     estado = request.args.get('estado')
@@ -251,7 +280,7 @@ def listar_notas():
     cursor.execute(query, params)
     notas = [dict(row) for row in cursor.fetchall()]
 
-    # Contar total
+    # Contar total (quitamos ORDER BY y LIMIT/OFFSET)
     query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
     cursor.execute(query_count, params[:-2])
     total = cursor.fetchone()[0]
@@ -289,7 +318,6 @@ def obtener_nota(nota_id):
     ''', (nota_id,))
 
     aplicaciones = [dict(row) for row in cursor.fetchall()]
-
     conn.close()
 
     return jsonify({

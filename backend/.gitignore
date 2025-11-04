@@ -1,0 +1,51 @@
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Output files (temporales)
+output/
+*.xlsx
+!templates/plantilla.xlsx
+
+# IMPORTANTE: NO IGNORAR LA BASE DE DATOS
+# La base de datos DEBE estar en el repositorio para mantener estado entre ejecuciones
+# data/  <- COMENTADO - Ya no se ignora
+# *.db   <- COMENTADO - Ya no se ignora
+
+# Solo ignorar backups temporales de la BD
+data/*.backup
+data/*.db.backup
+
+# Backups directory (se genera en workflows)
+backups/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (si se generan)
+*.log
+logs/
+
+# Reportes de limpieza
+reporte_limpieza_*.txt
+
+# Base de datos de archivo (no versionarla por tamaño)
+data/archivo_notas.db
+
+# API - Variables de entorno locales
+api/.env
