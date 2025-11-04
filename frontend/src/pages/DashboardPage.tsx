@@ -93,7 +93,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-muted-foreground">
-          Resumen general del sistema de notas de crédito
+          Visualización de información y estadísticas de notas
         </p>
       </div>
 
@@ -188,7 +188,7 @@ export default function DashboardPage() {
         <CardHeader>
           <CardTitle>Detalle por Estado</CardTitle>
           <CardDescription>
-            Resumen detallado de notas de crédito
+            Resumen detallado de notas
           </CardDescription>
         </CardHeader>
         <CardContent>

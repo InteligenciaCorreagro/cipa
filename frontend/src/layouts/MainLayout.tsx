@@ -23,7 +23,7 @@ export default function MainLayout() {
 
   const menuItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/notas', icon: FileText, label: 'Notas de Crédito' },
+    { path: '/notas', icon: FileText, label: 'Consulta de Notas' },
   ]
 
   return (
@@ -37,7 +37,7 @@ export default function MainLayout() {
         {/* Header */}
         <div className="h-16 border-b border-border flex items-center justify-between px-4">
           {sidebarOpen && (
-            <h1 className="text-xl font-bold text-primary">CIPA</h1>
+            <h1 className="text-xl font-bold text-primary">Correagro</h1>
           )}
           <Button
             variant="ghost"
