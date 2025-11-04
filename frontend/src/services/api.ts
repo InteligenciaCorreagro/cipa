@@ -10,93 +10,207 @@ import type {
   ApiError,
 } from '@/types'
 
+// ============================================================================
+// CONFIGURACIÓN: URL de la API en puerto 2500
+// ============================================================================
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:2500'
+
+console.log('🔧 API Configuration:', {
+  url: API_URL,
+  env: import.meta.env.MODE
+})
 
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000,
 })
 
-// Interceptor para agregar el token a las peticiones
+// ============================================================================
+// INTERCEPTOR DE REQUEST - Agregar token
+// ============================================================================
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token')
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+      console.log('🔑 Token agregado a request:', {
+        url: config.url,
+        method: config.method,
+        tokenPreview: token.substring(0, 20) + '...'
+      })
+    } else {
+      console.warn('⚠️  No hay token disponible para:', config.url)
     }
+    
     return config
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('❌ Error en request interceptor:', error)
+    return Promise.reject(error)
+  }
 )
 
-// Interceptor para manejar errores de autenticación
-api.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError<ApiError>) => {
-    const originalRequest = error.config
+// ============================================================================
+// INTERCEPTOR DE RESPONSE - Manejo de errores y refresh
+// ============================================================================
+let isRefreshing = false
+let failedQueue: any[] = []
 
-    // Solo intentar refresh si es un error 401 Y tenemos tokens
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error)
+    } else {
+      prom.resolve(token)
+    }
+  })
+  
+  failedQueue = []
+}
+
+api.interceptors.response.use(
+  (response) => {
+    console.log('✅ Response exitoso:', {
+      url: response.config.url,
+      status: response.status
+    })
+    return response
+  },
+  async (error: AxiosError<ApiError>) => {
+    const originalRequest: any = error.config
+
+    console.error('❌ Error en response:', {
+      url: originalRequest?.url,
+      status: error.response?.status,
+      message: error.message,
+      code: error.code
+    })
+
+    // ========================================================================
+    // Manejo de errores de red
+    // ========================================================================
+    if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
+      console.error('🔌 Error de conexión con el servidor')
+      return Promise.reject({
+        ...error,
+        message: 'No se pudo conectar con el servidor. Verifica que el backend esté corriendo en ' + API_URL
+      })
+    }
+
+    // ========================================================================
+    // Manejo de error 401 (no autorizado)
+    // ========================================================================
     if (error.response?.status === 401 && originalRequest) {
       const refreshToken = localStorage.getItem('refresh_token')
 
-      // Si no hay refresh token, no intentar refresh
       if (!refreshToken) {
-        return Promise.reject(error)
-      }
-
-      // Evitar loops infinitos - no reintentar el endpoint de refresh
-      if (originalRequest.url?.includes('/auth/refresh')) {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user')
+        console.warn('🔒 No hay refresh token, redirigiendo a login')
+        localStorage.clear()
         window.location.href = '/login'
         return Promise.reject(error)
       }
 
-      // Intentar refrescar el token
-      try {
-        const response = await axios.post(`${API_URL}/api/auth/refresh`, {}, {
+      if (originalRequest.url?.includes('/auth/refresh')) {
+        console.error('❌ Refresh token inválido o expirado')
+        localStorage.clear()
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+
+      if (originalRequest.url?.includes('/auth/login')) {
+        console.error('❌ Credenciales inválidas')
+        return Promise.reject(error)
+      }
+
+      // ======================================================================
+      // Sistema de cola para refresh token
+      // ======================================================================
+      if (isRefreshing) {
+        console.log('⏳ Esperando refresh en progreso...')
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject })
+        }).then(token => {
+          originalRequest.headers['Authorization'] = 'Bearer ' + token
+          return api(originalRequest)
+        }).catch(err => {
+          return Promise.reject(err)
+        })
+      }
+
+      originalRequest._retry = true
+      isRefreshing = true
+
+      console.log('🔄 Intentando refrescar token...')
+
+      return new Promise((resolve, reject) => {
+        axios.post(`${API_URL}/api/auth/refresh`, {}, {
           headers: {
-            Authorization: `Bearer ${refreshToken}`,
+            'Authorization': `Bearer ${refreshToken}`,
           },
         })
-
-        const { access_token } = response.data
-        localStorage.setItem('access_token', access_token)
-
-        // Reintentar la petición original
-        originalRequest.headers.Authorization = `Bearer ${access_token}`
-        return api(originalRequest)
-      } catch (refreshError) {
-        // Si falla el refresh, limpiar tokens y redirigir al login
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
-        return Promise.reject(refreshError)
-      }
-    }
-
-    // Para errores de red (ERR_NETWORK), no redirigir
-    if (error.code === 'ERR_NETWORK') {
-      return Promise.reject(error)
+        .then(response => {
+          const { access_token } = response.data
+          
+          console.log('✅ Token refrescado exitosamente')
+          
+          localStorage.setItem('access_token', access_token)
+          originalRequest.headers['Authorization'] = 'Bearer ' + access_token
+          
+          processQueue(null, access_token)
+          resolve(api(originalRequest))
+        })
+        .catch(err => {
+          console.error('❌ Error al refrescar token:', err)
+          processQueue(err, null)
+          localStorage.clear()
+          window.location.href = '/login'
+          reject(err)
+        })
+        .finally(() => {
+          isRefreshing = false
+        })
+      })
     }
 
     return Promise.reject(error)
   }
 )
 
-// Auth API
+// ============================================================================
+// AUTH API
+// ============================================================================
 export const authApi = {
   login: async (credentials: LoginRequest): Promise<LoginResponse> => {
-    const { data } = await api.post<LoginResponse>('/api/auth/login', credentials)
-    return data
+    console.log('🔐 Intentando login con:', credentials.username)
+    
+    try {
+      const { data } = await api.post<LoginResponse>('/api/auth/login', credentials)
+      
+      console.log('✅ Login exitoso:', {
+        username: data.user.username,
+        rol: data.user.rol
+      })
+      
+      return data
+    } catch (error: any) {
+      console.error('❌ Login fallido:', error.response?.data || error.message)
+      throw error
+    }
   },
 
   logout: async (): Promise<void> => {
-    await api.post('/api/auth/logout')
+    console.log('👋 Cerrando sesión...')
+    
+    try {
+      await api.post('/api/auth/logout')
+      console.log('✅ Logout exitoso')
+    } catch (error) {
+      console.error('⚠️  Error en logout:', error)
+    }
   },
 
   changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
@@ -112,7 +226,9 @@ export const authApi = {
   },
 }
 
-// Notas API
+// ============================================================================
+// NOTAS API
+// ============================================================================
 export const notasApi = {
   getNotas: async (params?: {
     estado?: string
@@ -122,8 +238,21 @@ export const notasApi = {
     limite?: number
     offset?: number
   }): Promise<PaginatedResponse<NotaCredito>> => {
-    const { data } = await api.get<PaginatedResponse<NotaCredito>>('/api/notas', { params })
-    return data
+    console.log('📄 Obteniendo notas con params:', params)
+    
+    try {
+      const { data } = await api.get<PaginatedResponse<NotaCredito>>('/api/notas', { params })
+      
+      console.log('✅ Notas obtenidas:', {
+        total: data.total,
+        items: data.items.length
+      })
+      
+      return data
+    } catch (error) {
+      console.error('❌ Error obteniendo notas:', error)
+      throw error
+    }
   },
 
   getNota: async (id: number): Promise<NotaCredito> => {
@@ -142,7 +271,9 @@ export const notasApi = {
   },
 }
 
-// Aplicaciones API
+// ============================================================================
+// APLICACIONES API
+// ============================================================================
 export const aplicacionesApi = {
   getAplicaciones: async (numeroNota: string): Promise<Aplicacion[]> => {
     const { data } = await api.get<Aplicacion[]>(`/api/aplicaciones/${numeroNota}`)
@@ -150,7 +281,9 @@ export const aplicacionesApi = {
   },
 }
 
-// Health API
+// ============================================================================
+// HEALTH API
+// ============================================================================
 export const healthApi = {
   check: async (): Promise<{ status: string }> => {
     const { data } = await api.get<{ status: string }>('/api/health')

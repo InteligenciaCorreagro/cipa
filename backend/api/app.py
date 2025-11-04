@@ -1,19 +1,10 @@
 """
-API REST para consulta de notas de crédito
+API REST para consulta de notas de crédito - VERSIÓN CON DEBUG JWT
 
-Endpoints:
-- POST /api/auth/login - Autenticación
-- POST /api/auth/logout - Cerrar sesión
-- POST /api/auth/refresh - Refresh token
-- POST /api/auth/change-password - Cambiar contraseña
-
-- GET /api/notas - Listar notas (con filtros)
-- GET /api/notas/<id> - Obtener nota específica
-- GET /api/notas/estadisticas - Estadísticas generales
-- GET /api/notas/por-estado - Notas agrupadas por estado
-
-- GET /api/aplicaciones/<numero_nota> - Aplicaciones de una nota
-- GET /api/archivo/estadisticas - Estadísticas del archivo
+CAMBIOS:
+- Logging detallado de JWT
+- Validación explícita de tokens
+- Mensajes de error más descriptivos
 """
 
 import os
@@ -25,89 +16,90 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity, get_jwt
+    jwt_required, get_jwt_identity, get_jwt, verify_jwt_in_request
 )
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 # =============================================================================
-# PYTHONPATH FIX: aseguramos que 'backend' (padre de 'core') esté en sys.path
-# Estructura esperada:
-# PROCESO ACTUAL/
-#   backend/
-#     api/app.py   <-- este archivo
-#     api/auth.py
-#     core/archivador_notas.py
+# PYTHONPATH FIX
 # =============================================================================
 CURRENT_FILE = Path(__file__).resolve()
-API_DIR = CURRENT_FILE.parent                 # .../backend/api
-BACKEND_DIR = API_DIR.parent                  # .../backend
+API_DIR = CURRENT_FILE.parent
+BACKEND_DIR = API_DIR.parent
 
-# Insertamos 'backend' y 'backend/api' al inicio del sys.path
 sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(API_DIR))
 
-# (Opcional de depuración)
-# import pprint; print(">> sys.path head:"); pprint.pprint(sys.path[:5])
-
-# Imports locales (ya con rutas correctas)
-from auth import AuthManager
-from core.archivador_notas import ArchivadorNotas
+# Imports locales
+try:
+    from auth import AuthManager
+    from core.archivador_notas import ArchivadorNotas
+except ImportError as e:
+    print(f"Error en imports: {e}")
+    # Fallback
+    try:
+        from api.auth import AuthManager
+        from core.archivador_notas import ArchivadorNotas
+    except ImportError as e2:
+        print(f"Error en imports (fallback): {e2}")
+        sys.exit(1)
 
 # =============================================================================
-# Carga de variables de entorno y logging
+# Configuración
 # =============================================================================
 load_dotenv()
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # DEBUG para ver todo
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# App Flask y configuración
+# App Flask
 # =============================================================================
 app = Flask(__name__)
 
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION')
+# JWT Configuration
+JWT_SECRET = os.getenv('JWT_SECRET_KEY', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION')
+app.config['JWT_SECRET_KEY'] = JWT_SECRET
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
+logger.info(f"="*60)
+logger.info(f"JWT_SECRET_KEY configurado:")
+logger.info(f"  Primeros 40 chars: {JWT_SECRET[:40]}...")
+logger.info(f"  Longitud: {len(JWT_SECRET)} caracteres")
+logger.info(f"="*60)
 
 # JWT Manager
 jwt = JWTManager(app)
 
-# CORS (ajusta origins según sea necesario)
+# CORS
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# =============================================================================
-# Rate Limiter (compatibilidad v2/v3 de Flask-Limiter)
-# =============================================================================
+# Rate Limiter (opcional)
 try:
-    # Flask-Limiter v3+
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
-
     limiter = Limiter(
         get_remote_address,
         app=app,
         default_limits=["200 per day", "50 per hour"],
         storage_uri="memory://"
     )
-except Exception:
-    # Fallback a v2 (firma antigua)
-    from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri="memory://"
-    )
+except Exception as e:
+    logger.warning(f"Flask-Limiter no disponible: {e}")
+    class DummyLimiter:
+        def limit(self, *args, **kwargs):
+            def decorator(f):
+                return f
+            return decorator
+    limiter = DummyLimiter()
 
 # =============================================================================
-# Instancias de managers y DB
+# Managers
 # =============================================================================
 auth_manager = AuthManager()
 archivador = ArchivadorNotas()
@@ -123,28 +115,78 @@ def get_db_connection():
 
 
 # =============================================================================
+# MIDDLEWARE DE DEBUG
+# =============================================================================
+
+@app.before_request
+def log_request():
+    """Log detallado de cada request"""
+    logger.debug(f"=" * 60)
+    logger.debug(f"REQUEST: {request.method} {request.path}")
+    
+    # Log headers (sin datos sensibles completos)
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header:
+        if auth_header.startswith('Bearer '):
+            token_preview = auth_header[7:27] + '...'
+            logger.debug(f"Authorization header presente: Bearer {token_preview}")
+        else:
+            logger.warning(f"Authorization header malformado: {auth_header[:50]}")
+    else:
+        logger.debug("No Authorization header")
+    
+    logger.debug(f"=" * 60)
+
+
+# =============================================================================
+# JWT ERROR HANDLERS
+# =============================================================================
+
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    logger.warning(f"Token expirado - Usuario ID: {jwt_payload.get('sub')}")
+    return jsonify({
+        "error": "Token expirado",
+        "message": "Tu sesión ha expirado. Por favor, inicia sesión nuevamente."
+    }), 401
+
+
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    logger.error(f"Token inválido: {error}")
+    return jsonify({
+        "error": "Token inválido",
+        "message": "El token proporcionado no es válido.",
+        "detail": str(error)
+    }), 401
+
+
+@jwt.unauthorized_loader
+def missing_token_callback(error):
+    logger.warning(f"Token faltante: {error}")
+    return jsonify({
+        "error": "Token no proporcionado",
+        "message": "Se requiere autenticación para acceder a este recurso."
+    }), 401
+
+
+@jwt.revoked_token_loader
+def revoked_token_callback(jwt_header, jwt_payload):
+    logger.warning(f"Token revocado - Usuario ID: {jwt_payload.get('sub')}")
+    return jsonify({
+        "error": "Token revocado",
+        "message": "Tu sesión ha sido cerrada."
+    }), 401
+
+
+# =============================================================================
 # ENDPOINTS DE AUTENTICACIÓN
 # =============================================================================
 
 @app.route('/api/auth/login', methods=['POST'])
 @limiter.limit("5 per minute")
 def login():
-    """
-    Autenticación de usuario
-
-    Request Body:
-        {
-            "username": "admin",
-            "password": "password123"
-        }
-
-    Response:
-        {
-            "access_token": "...",
-            "refresh_token": "...",
-            "usuario": {...}
-        }
-    """
+    """Autenticación de usuario"""
     data = request.get_json()
 
     if not data or 'username' not in data or 'password' not in data:
@@ -152,25 +194,36 @@ def login():
 
     username = data['username']
     password = data['password']
-    # IP del cliente (para auditoría)
+    
     try:
-        from flask_limiter.util import get_remote_address as _get_ip
-        ip_address = _get_ip()
-    except Exception:
         ip_address = request.remote_addr or '0.0.0.0'
+    except:
+        ip_address = '0.0.0.0'
+
+    logger.info(f"Intento de login: {username} desde {ip_address}")
 
     # Autenticar
     autenticado, usuario, mensaje = auth_manager.autenticar(username, password, ip_address)
 
     if not autenticado:
+        logger.warning(f"Login fallido para {username}: {mensaje}")
         return jsonify({"error": mensaje}), 401
 
+    # ✅ SOLUCIÓN: Convertir ID a string
+    user_id_str = str(usuario['id'])
+
     # Crear tokens JWT
-    access_token = create_access_token(identity=usuario['id'], additional_claims={
-        'username': usuario['username'],
-        'rol': usuario['rol']
-    })
-    refresh_token = create_refresh_token(identity=usuario['id'])
+    access_token = create_access_token(
+        identity=user_id_str,  # ✅ String en lugar de int
+        additional_claims={
+            'username': usuario['username'],
+            'rol': usuario['rol']
+        }
+    )
+    refresh_token = create_refresh_token(identity=user_id_str)  # ✅ String
+
+    logger.info(f"✅ Login exitoso: {username} (ID: {usuario['id']})")
+    logger.debug(f"Token generado: {access_token[:50]}...")
 
     return jsonify({
         "access_token": access_token,
@@ -188,16 +241,18 @@ def login():
 @jwt_required(refresh=True)
 def refresh():
     """Obtener nuevo access token usando refresh token"""
-    identity = get_jwt_identity()
+    identity = get_jwt_identity()  # Esto ahora será un string
+    
+    logger.info(f"Refresh token para usuario ID: {identity}")
 
-    # Obtener datos actualizados del usuario desde la base de datos
+    # Obtener datos del usuario
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT username, rol
         FROM usuarios
         WHERE id = ? AND activo = 1
-    ''', (identity,))
+    ''', (identity,))  # SQLite convierte automáticamente string a int
 
     row = cursor.fetchone()
     conn.close()
@@ -205,14 +260,16 @@ def refresh():
     if not row:
         return jsonify({"error": "Usuario no encontrado o inactivo"}), 401
 
-    # Crear nuevo access token solo con los claims personalizados necesarios
     access_token = create_access_token(
-        identity=identity,
+        identity=identity,  # Ya es string
         additional_claims={
             'username': row['username'],
             'rol': row['rol']
         }
     )
+    
+    logger.debug(f"Nuevo token generado: {access_token[:50]}...")
+    
     return jsonify({"access_token": access_token}), 200
 
 
@@ -220,9 +277,8 @@ def refresh():
 @jwt_required()
 def logout():
     """Cerrar sesión"""
-    # Si manejas lista negra, aquí invalidas el jti
-    # jti = get_jwt()['jti']
-    # auth_manager.invalidar_sesion(jti)
+    identity = get_jwt_identity()
+    logger.info(f"Logout: Usuario ID {identity}")
     return jsonify({"mensaje": "Sesión cerrada exitosamente"}), 200
 
 
@@ -239,6 +295,7 @@ def change_password():
     username = claims.get('username')
 
     if auth_manager.cambiar_contraseña(username, data['nueva_contraseña']):
+        logger.info(f"Contraseña cambiada para: {username}")
         return jsonify({"mensaje": "Contraseña cambiada exitosamente"}), 200
     else:
         return jsonify({"error": "Error al cambiar contraseña"}), 500
@@ -252,175 +309,196 @@ def change_password():
 @jwt_required()
 @limiter.limit("100 per minute")
 def listar_notas():
-    """
-    Listar notas de crédito con filtros
+    """Listar notas de crédito con filtros"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando listado de notas")
+        
+        estado = request.args.get('estado')
+        nit_cliente = request.args.get('nit_cliente')
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
 
-    Query Parameters:
-        - estado: PENDIENTE, PARCIAL, APLICADA
-        - nit_cliente: Filtrar por NIT
-        - fecha_desde: YYYY-MM-DD
-        - fecha_hasta: YYYY-MM-DD
-        - limite: Máximo de resultados (default: 100)
-        - offset: Paginación (default: 0)
-    """
-    # Parámetros de filtro
-    estado = request.args.get('estado')
-    nit_cliente = request.args.get('nit_cliente')
-    fecha_desde = request.args.get('fecha_desde')
-    fecha_hasta = request.args.get('fecha_hasta')
-    limite = int(request.args.get('limite', 100))
-    offset = int(request.args.get('offset', 0))
+        query = "SELECT * FROM notas_credito WHERE 1=1"
+        params = []
 
-    # Construir query
-    query = "SELECT * FROM notas_credito WHERE 1=1"
-    params = []
+        if estado:
+            query += " AND estado = ?"
+            params.append(estado)
 
-    if estado:
-        query += " AND estado = ?"
-        params.append(estado)
+        if nit_cliente:
+            query += " AND nit_cliente = ?"
+            params.append(nit_cliente)
 
-    if nit_cliente:
-        query += " AND nit_cliente = ?"
-        params.append(nit_cliente)
+        if fecha_desde:
+            query += " AND fecha_nota >= ?"
+            params.append(fecha_desde)
 
-    if fecha_desde:
-        query += " AND fecha_nota >= ?"
-        params.append(fecha_desde)
+        if fecha_hasta:
+            query += " AND fecha_nota <= ?"
+            params.append(fecha_hasta)
 
-    if fecha_hasta:
-        query += " AND fecha_nota <= ?"
-        params.append(fecha_hasta)
+        query += " ORDER BY fecha_nota DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
 
-    query += " ORDER BY fecha_nota DESC LIMIT ? OFFSET ?"
-    params.extend([limite, offset])
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    # Ejecutar query
-    conn = get_db_connection()
-    cursor = conn.cursor()
+        cursor.execute(query, params)
+        notas = [dict(row) for row in cursor.fetchall()]
 
-    cursor.execute(query, params)
-    notas = [dict(row) for row in cursor.fetchall()]
+        query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
 
-    # Contar total (quitamos ORDER BY y LIMIT/OFFSET)
-    query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
-    cursor.execute(query_count, params[:-2])
-    total = cursor.fetchone()[0]
+        conn.close()
 
-    conn.close()
+        logger.debug(f"Retornando {len(notas)} notas de {total} totales")
 
-    return jsonify({
-        "items": notas,
-        "total": total,
-        "limite": limite,
-        "offset": offset,
-        "total_paginas": (total + limite - 1) // limite
-    }), 200
+        return jsonify({
+            "items": notas,
+            "total": total,
+            "limite": limite,
+            "offset": offset,
+            "total_paginas": (total + limite - 1) // limite
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en listar_notas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener notas"}), 500
 
 
 @app.route('/api/notas/<int:nota_id>', methods=['GET'])
 @jwt_required()
 def obtener_nota(nota_id):
     """Obtener detalles de una nota específica"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando nota {nota_id}")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute('SELECT * FROM notas_credito WHERE id = ?', (nota_id,))
-    nota = cursor.fetchone()
+        cursor.execute('SELECT * FROM notas_credito WHERE id = ?', (nota_id,))
+        nota = cursor.fetchone()
 
-    if not nota:
+        if not nota:
+            conn.close()
+            return jsonify({"error": "Nota no encontrada"}), 404
+
+        cursor.execute('''
+            SELECT * FROM aplicaciones_notas
+            WHERE id_nota = ?
+            ORDER BY fecha_aplicacion DESC
+        ''', (nota_id,))
+
+        aplicaciones = [dict(row) for row in cursor.fetchall()]
         conn.close()
-        return jsonify({"error": "Nota no encontrada"}), 404
 
-    # Obtener aplicaciones
-    cursor.execute('''
-        SELECT * FROM aplicaciones_notas
-        WHERE id_nota = ?
-        ORDER BY fecha_aplicacion DESC
-    ''', (nota_id,))
+        return jsonify(dict(nota)), 200
 
-    aplicaciones = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-
-    return jsonify({
-        "nota": dict(nota),
-        "aplicaciones": aplicaciones
-    }), 200
+    except Exception as e:
+        logger.error(f"Error en obtener_nota: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener nota"}), 500
 
 
 @app.route('/api/notas/por-estado', methods=['GET'])
 @jwt_required()
 def notas_por_estado():
     """Obtener resumen de notas agrupadas por estado"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute('''
-        SELECT estado, COUNT(*) as cantidad, SUM(saldo_pendiente) as saldo_total
-        FROM notas_credito
-        GROUP BY estado
-    ''')
+        cursor.execute('''
+            SELECT 
+                estado, 
+                COUNT(*) as cantidad, 
+                SUM(valor_total) as valor_total,
+                SUM(saldo_pendiente) as saldo_pendiente
+            FROM notas_credito
+            GROUP BY estado
+        ''')
 
-    resultados = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+        resultados = [dict(row) for row in cursor.fetchall()]
+        conn.close()
 
-    return jsonify(resultados), 200
+        return jsonify(resultados), 200
+
+    except Exception as e:
+        logger.error(f"Error en notas_por_estado: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener datos"}), 500
 
 
 @app.route('/api/notas/estadisticas', methods=['GET'])
 @jwt_required()
 def estadisticas():
     """Obtener estadísticas generales"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        identity = get_jwt_identity()
+        logger.info(f"Usuario ID {identity} solicitando estadísticas")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    stats = {}
+        stats = {}
 
-    # Total notas
-    cursor.execute('SELECT COUNT(*) FROM notas_credito')
-    stats['total_notas'] = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM notas_credito')
+        stats['total_notas'] = cursor.fetchone()[0]
 
-    # Por estado
-    cursor.execute('''
-        SELECT estado, COUNT(*) as cantidad, SUM(saldo_pendiente) as saldo
-        FROM notas_credito
-        GROUP BY estado
-    ''')
+        cursor.execute('SELECT SUM(valor_total) FROM notas_credito')
+        stats['total_valor'] = cursor.fetchone()[0] or 0
 
-    stats['por_estado'] = {row['estado']: {
-        'cantidad': row['cantidad'],
-        'saldo': row['saldo'] or 0
-    } for row in cursor.fetchall()}
+        cursor.execute('''
+            SELECT estado, COUNT(*) as cantidad, SUM(saldo_pendiente) as saldo
+            FROM notas_credito
+            GROUP BY estado
+        ''')
 
-    # Total aplicaciones
-    cursor.execute('SELECT COUNT(*) FROM aplicaciones_notas')
-    stats['total_aplicaciones'] = cursor.fetchone()[0]
+        for row in cursor.fetchall():
+            estado_lower = row['estado'].lower().replace(' ', '_')
+            stats[f'notas_{estado_lower}'] = row['cantidad']
 
-    # Valor total pendiente
-    cursor.execute('SELECT SUM(saldo_pendiente) FROM notas_credito WHERE estado != "APLICADA"')
-    stats['valor_total_pendiente'] = cursor.fetchone()[0] or 0
+        cursor.execute('SELECT SUM(saldo_pendiente) FROM notas_credito WHERE estado != "APLICADA"')
+        stats['saldo_pendiente_total'] = cursor.fetchone()[0] or 0
 
-    conn.close()
+        cursor.execute('SELECT COUNT(*) FROM aplicaciones_notas')
+        stats['total_aplicaciones'] = cursor.fetchone()[0]
 
-    return jsonify(stats), 200
+        conn.close()
+
+        logger.info(f"✅ Estadísticas retornadas exitosamente")
+        return jsonify(stats), 200
+
+    except Exception as e:
+        logger.error(f"Error en estadisticas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener estadísticas"}), 500
 
 
 @app.route('/api/aplicaciones/<numero_nota>', methods=['GET'])
 @jwt_required()
 def obtener_aplicaciones(numero_nota):
     """Obtener aplicaciones de una nota específica"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    cursor.execute('''
-        SELECT * FROM aplicaciones_notas
-        WHERE numero_nota = ?
-        ORDER BY fecha_aplicacion DESC
-    ''', (numero_nota,))
+        cursor.execute('''
+            SELECT * FROM aplicaciones_notas
+            WHERE numero_nota = ?
+            ORDER BY fecha_aplicacion DESC
+        ''', (numero_nota,))
 
-    aplicaciones = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+        aplicaciones = [dict(row) for row in cursor.fetchall()]
+        conn.close()
 
-    return jsonify(aplicaciones), 200
+        return jsonify(aplicaciones), 200
+
+    except Exception as e:
+        logger.error(f"Error en obtener_aplicaciones: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener aplicaciones"}), 500
 
 
 # =============================================================================
@@ -431,8 +509,12 @@ def obtener_aplicaciones(numero_nota):
 @jwt_required()
 def estadisticas_archivo():
     """Obtener estadísticas del archivo"""
-    stats = archivador.obtener_estadisticas_archivo()
-    return jsonify(stats), 200
+    try:
+        stats = archivador.obtener_estadisticas_archivo()
+        return jsonify(stats), 200
+    except Exception as e:
+        logger.error(f"Error en estadisticas_archivo: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener estadísticas"}), 500
 
 
 # =============================================================================
@@ -441,11 +523,12 @@ def estadisticas_archivo():
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
+    """Health check endpoint - NO requiere autenticación"""
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
+        "version": "1.0.1",
+        "jwt_configured": bool(app.config.get('JWT_SECRET_KEY'))
     }), 200
 
 
@@ -460,23 +543,8 @@ def not_found(error):
 
 @app.errorhandler(500)
 def internal_error(error):
-    logger.error(f"Error interno: {error}")
+    logger.error(f"Error interno: {error}", exc_info=True)
     return jsonify({"error": "Error interno del servidor"}), 500
-
-
-@jwt.expired_token_loader
-def expired_token_callback(jwt_header, jwt_payload):
-    return jsonify({"error": "Token expirado"}), 401
-
-
-@jwt.invalid_token_loader
-def invalid_token_callback(error):
-    return jsonify({"error": "Token inválido"}), 401
-
-
-@jwt.unauthorized_loader
-def missing_token_callback(error):
-    return jsonify({"error": "Token no proporcionado"}), 401
 
 
 # =============================================================================
@@ -484,15 +552,18 @@ def missing_token_callback(error):
 # =============================================================================
 
 if __name__ == '__main__':
-    # Configurar puerto
-    port = int(os.getenv('API_PORT', 5000))
+    port = int(os.getenv('API_PORT', 2500))
 
-    logger.info(f"Iniciando API en puerto {port}")
-    logger.info(f"JWT Secret configurado: {'Sí' if app.config['JWT_SECRET_KEY'] != 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION' else 'NO - USAR .env!'}")
+    logger.info(f"=" * 60)
+    logger.info(f"🚀 INICIANDO API REST - CIPA")
+    logger.info(f"=" * 60)
+    logger.info(f"Puerto: {port}")
+    logger.info(f"JWT Secret configurado: {'Sí' if JWT_SECRET != 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION' else 'NO - CAMBIAR!'}")
+    logger.info(f"Base de datos: {DB_PATH}")
+    logger.info(f"=" * 60)
 
-    # Ejecutar app
     app.run(
         host='0.0.0.0',
         port=port,
-        debug=os.getenv('DEBUG', 'False').lower() == 'true'
+        debug=True  # DEBUG activado para ver logs
     )
