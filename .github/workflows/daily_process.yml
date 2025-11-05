@@ -114,7 +114,8 @@ jobs:
           echo "🗄️  Base de datos: ./data/notas_credito.db"
           echo ""
 
-          # Ejecutar proceso principal
+          # Ejecutar proceso principal con PYTHONPATH configurado
+          export PYTHONPATH="${PYTHONPATH}:${PWD}/backend"
           python backend/main.py
 
           echo ""
