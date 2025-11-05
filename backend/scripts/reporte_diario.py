@@ -9,8 +9,8 @@ import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import logging
-from src.notas_credito_manager import NotasCreditoManager
-from src.email_sender import EmailSender
+from core.notas_credito_manager import NotasCreditoManager
+from core.email_sender import EmailSender
 
 # Configurar logging
 logging.basicConfig(
