@@ -43,18 +43,18 @@ jobs:
       - name: Crear backup
         run: |
           if [ -s data/notas_credito.db ]; then
-            python backup_database.py crear --db-path data/notas_credito.db --backup-dir backups
+            python backend/scripts/backup_database.py crear --db-path data/notas_credito.db --backup-dir backups
           else
             echo "Base de datos vacía, saltando backup"
           fi
-      
+
       - name: Limpiar backups antiguos
         run: |
-          python backup_database.py limpiar --backup-dir backups --dias 90
-      
+          python backend/scripts/backup_database.py limpiar --backup-dir backups --dias 90
+
       - name: Listar backups
         run: |
-          python backup_database.py listar --backup-dir backups
+          python backend/scripts/backup_database.py listar --backup-dir backups
       
       - name: Cargar backups como artefacto
         uses: actions/upload-artifact@v4

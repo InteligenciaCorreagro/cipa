@@ -45,7 +45,7 @@ jobs:
       - name: 🔧 Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
       
       - name: 📁 Crear estructura de directorios
         run: |
@@ -113,10 +113,10 @@ jobs:
           echo "🕐 Zona horaria: America/Bogota"
           echo "🗄️  Base de datos: ./data/notas_credito.db"
           echo ""
-          
+
           # Ejecutar proceso principal
-          python main.py
-          
+          python backend/main.py
+
           echo ""
           echo "=================================================="
           echo "✅ PROCESO COMPLETADO"
