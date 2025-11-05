@@ -59,9 +59,9 @@ export default function NotasPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Notas de Crédito</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Consulta de Notas</h1>
         <p className="text-muted-foreground">
-          Gestión y seguimiento de notas de crédito
+          Visualización y consulta de información de notas
         </p>
       </div>
 
@@ -69,7 +69,7 @@ export default function NotasPage() {
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
           <CardDescription>
-            Buscar y filtrar notas de crédito
+            Buscar y filtrar notas
           </CardDescription>
         </CardHeader>
         <CardContent>
