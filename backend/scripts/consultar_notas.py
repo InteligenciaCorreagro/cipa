@@ -6,7 +6,7 @@ Permite visualizar el estado actual de las notas crédito en el sistema
 import os
 import sys
 from datetime import datetime
-from src.notas_credito_manager import NotasCreditoManager
+from core.notas_credito_manager import NotasCreditoManager
 
 def print_separator(char='=', length=80):
     """Imprime un separador"""

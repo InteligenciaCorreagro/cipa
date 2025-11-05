@@ -2,11 +2,11 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import logging
-from src.api_client import SiesaAPIClient
-from src.excel_processor import ExcelProcessor
-from src.email_sender import EmailSender
-from src.business_rules import BusinessRulesValidator
-from src.notas_credito_manager import NotasCreditoManager
+from core.api_client import SiesaAPIClient
+from core.excel_processor import ExcelProcessor
+from core.email_sender import EmailSender
+from core.business_rules import BusinessRulesValidator
+from core.notas_credito_manager import NotasCreditoManager
 
 # Configurar logging
 logging.basicConfig(
