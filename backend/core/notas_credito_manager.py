@@ -29,27 +29,32 @@ class NotasCreditoManager:
         """Crea las tablas necesarias en la base de datos si no existen"""
         # Crear directorio si no existe
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         # Tabla de notas crédito pendientes
+        # IMPORTANTE: Una nota puede tener múltiples líneas (productos)
+        # El constraint UNIQUE es (numero_nota, codigo_producto)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS notas_credito (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero_nota TEXT NOT NULL UNIQUE,
+                numero_nota TEXT NOT NULL,
                 fecha_nota DATE NOT NULL,
                 nit_cliente TEXT NOT NULL,
                 nombre_cliente TEXT NOT NULL,
                 codigo_producto TEXT NOT NULL,
                 nombre_producto TEXT NOT NULL,
+                tipo_inventario TEXT,
                 valor_total REAL NOT NULL,
                 cantidad REAL NOT NULL,
                 saldo_pendiente REAL NOT NULL,
                 cantidad_pendiente REAL NOT NULL,
+                causal_devolucion TEXT,
                 estado TEXT DEFAULT 'PENDIENTE',
                 fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                fecha_aplicacion_completa TIMESTAMP NULL
+                fecha_aplicacion_completa TIMESTAMP NULL,
+                UNIQUE(numero_nota, codigo_producto)
             )
         ''')
         
@@ -134,21 +139,21 @@ class NotasCreditoManager:
     def registrar_nota_credito(self, nota: Dict) -> bool:
         """
         Registra una nueva nota crédito en la base de datos
-        
+
         Args:
             nota: Datos de la nota crédito desde la API
-            
+
         Returns:
             True si se registró correctamente, False si ya existía
         """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Extraer datos de la nota
             numero_nota = f"{nota.get('f_prefijo', '')}{nota.get('f_nrodocto', '')}"
             fecha_nota_str = nota.get('f_fecha', '')
-            
+
             # Parsear fecha
             fecha_nota = None
             if fecha_nota_str:
@@ -158,10 +163,15 @@ class NotasCreditoManager:
                     fecha_nota = datetime.now().date()
             else:
                 fecha_nota = datetime.now().date()
-            
+
             nit_cliente = str(nota.get('f_cliente_desp', '')).strip()
             nombre_cliente = str(nota.get('f_cliente_fact_razon_soc', '')).strip()
-            codigo_producto = str(nota.get('f_cod_item', '')).strip()
+
+            # IMPORTANTE: f_cod_item no siempre está disponible en la API
+            # Usar f_cod_item si existe, sino usar f_desc_item como identificador
+            codigo_producto_raw = nota.get('f_cod_item') or nota.get('f_desc_item', '')
+            codigo_producto = str(codigo_producto_raw).strip()
+
             nombre_producto = str(nota.get('f_desc_item', '')).strip()
             valor_total = float(nota.get('f_valor_subtotal_local', 0.0) or 0.0)
             cantidad = float(nota.get('f_cant_base', 0.0) or 0.0)
@@ -169,37 +179,46 @@ class NotasCreditoManager:
             # Extraer tipo de inventario (puede venir en f_cod_tipo_inv o f_tipo_inv)
             tipo_inventario_raw = nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or ''
             tipo_inventario = str(tipo_inventario_raw).strip().upper()
-            
-            # Verificar si ya existe
-            cursor.execute(
-                'SELECT id FROM notas_credito WHERE numero_nota = ?',
-                (numero_nota,)
-            )
-            
-            if cursor.fetchone():
-                logger.info(f"Nota crédito {numero_nota} ya existe en la BD")
+
+            # Extraer causal de devolución
+            causal_devolucion = str(nota.get('f_notas_causal_dev', '') or '').strip() or None
+
+            # Validación: código de producto no puede estar vacío
+            if not codigo_producto:
+                logger.error(f"Nota crédito {numero_nota} sin código de producto - Rechazada")
                 conn.close()
                 return False
-            
+
+            # Verificar si ya existe (por número de nota Y código de producto)
+            cursor.execute(
+                'SELECT id FROM notas_credito WHERE numero_nota = ? AND codigo_producto = ?',
+                (numero_nota, codigo_producto)
+            )
+
+            if cursor.fetchone():
+                logger.info(f"Nota crédito {numero_nota} - Producto {codigo_producto[:30]}... ya existe en la BD")
+                conn.close()
+                return False
+
             # Insertar nota crédito
             cursor.execute('''
                 INSERT INTO notas_credito
                 (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
                  codigo_producto, nombre_producto, tipo_inventario, valor_total, cantidad,
-                 saldo_pendiente, cantidad_pendiente, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')
+                 saldo_pendiente, cantidad_pendiente, causal_devolucion, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE')
             ''', (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
                   codigo_producto, nombre_producto, tipo_inventario, valor_total, cantidad,
-                  valor_total, cantidad))
-            
+                  valor_total, cantidad, causal_devolucion))
+
             conn.commit()
             conn.close()
-            
+
             logger.info(f"Nota crédito registrada: {numero_nota} - Cliente: {nit_cliente} - "
-                       f"Producto: {codigo_producto} - Valor: ${valor_total:,.2f}")
-            
+                       f"Producto: {codigo_producto[:30]}... - Valor: ${valor_total:,.2f} - Tipo: {tipo_inventario}")
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Error al registrar nota crédito: {e}")
             return False
