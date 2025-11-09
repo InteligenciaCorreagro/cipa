@@ -202,14 +202,24 @@ class BusinessRulesValidator:
         notas_credito = []
         facturas_rechazadas = []
         
-        # Separar notas crédito primero (sin validar tipo de inventario)
-        # IMPORTANTE: Las notas de crédito con prefijo 'N' SIEMPRE se aceptan
-        # sin importar el tipo de inventario
+        # Separar notas crédito y validar tipo de inventario
+        # IMPORTANTE: Las notas de crédito con prefijo 'N' se aceptan
+        # SOLO si su tipo de inventario NO está en TIPOS_INVENTARIO_EXCLUIDOS
         facturas_regulares = []
         for factura in facturas:
             if self.es_nota_credito(factura):
-                # Las notas de crédito SIEMPRE se aceptan (independiente del tipo de inventario)
-                notas_credito.append(factura)
+                tipo_inv = self._obtener_tipo_inventario_normalizado(factura)
+                # Validar tipo de inventario en notas de crédito
+                if not self.tipo_inventario_permitido(factura):
+                    razon = f"Nota crédito con tipo de inventario excluido: {tipo_inv}"
+                    facturas_rechazadas.append({
+                        'factura': factura,
+                        'razon_rechazo': razon
+                    })
+                    logger.warning(f"❌ Nota crédito rechazada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo inventario excluido: '{tipo_inv}'")
+                else:
+                    notas_credito.append(factura)
+                    logger.debug(f"✅ Nota crédito aceptada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo inventario: '{tipo_inv}'")
             else:
                 facturas_regulares.append(factura)
 

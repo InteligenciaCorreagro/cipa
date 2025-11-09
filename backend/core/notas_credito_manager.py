@@ -185,7 +185,10 @@ class NotasCreditoManager:
 
             # Validación: código de producto no puede estar vacío
             if not codigo_producto:
-                logger.error(f"Nota crédito {numero_nota} sin código de producto - Rechazada")
+                logger.error(f"⚠️ Nota crédito {numero_nota} sin código de producto - Rechazada")
+                logger.error(f"   Tipo inventario: {tipo_inventario}")
+                logger.error(f"   f_cod_item: {nota.get('f_cod_item')}")
+                logger.error(f"   f_desc_item: {nota.get('f_desc_item')}")
                 conn.close()
                 return False
 
