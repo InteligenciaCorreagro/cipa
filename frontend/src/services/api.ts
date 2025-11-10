@@ -10,7 +10,11 @@ import type {
   ApiError,
 } from '@/types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:2500'
+// En producción usar rutas relativas para aprovechar el subpath
+// En desarrollo usar localhost con puerto específico
+const API_URL = import.meta.env.PROD
+  ? '' // Rutas relativas en producción
+  : (import.meta.env.VITE_API_URL || 'http://localhost:2500')
 
 const api = axios.create({
   baseURL: API_URL,
@@ -51,7 +55,8 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
-        window.location.href = '/login'
+        const basePath = import.meta.env.VITE_BASE_PATH || ''
+        window.location.href = `${basePath}/login`
         return Promise.reject(error)
       }
 
@@ -74,7 +79,8 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
-        window.location.href = '/login'
+        const basePath = import.meta.env.VITE_BASE_PATH || ''
+        window.location.href = `${basePath}/login`
         return Promise.reject(refreshError)
       }
     }
