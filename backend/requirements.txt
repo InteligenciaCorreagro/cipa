@@ -1,3 +1,19 @@
+# Core dependencies
+Flask==3.0.0
+flask-cors==4.0.0
+flask-jwt-extended==4.6.0
+Flask-Limiter==3.5.0
+
+# Utilities
 requests==2.31.0
 openpyxl==3.1.2
 python-dotenv==1.0.0
+
+# Security
+bcrypt==4.1.2
+
+# Production server
+gunicorn==21.2.0
+
+# Database
+# SQLite is included in Python standard library
