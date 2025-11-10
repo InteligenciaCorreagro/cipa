@@ -119,29 +119,40 @@ class BusinessRulesValidator:
     def tipo_inventario_permitido(self, factura: Dict) -> bool:
         """
         Valida si el tipo de inventario de la factura está permitido
-        
+
         IMPORTANTE: Normaliza el tipo de inventario removiendo espacios y convirtiendo a mayúsculas
         antes de comparar con la lista de excluidos.
-        
+
+        ESPECIAL PARA NOTAS: Si una nota no tiene tipo de inventario pero su nombre
+        contiene "DESCUENTO" o "DESCESPEC", se rechaza automáticamente.
+
         Args:
             factura: Datos de la factura desde la API
-            
+
         Returns:
             True si el tipo está permitido, False si está excluido
         """
         tipo_inventario = self._obtener_tipo_inventario_normalizado(factura)
-        
+
         if not tipo_inventario:
+            # Si es una nota crédito sin tipo, verificar el nombre del producto
+            if self.es_nota_credito(factura):
+                nombre_producto = str(factura.get('f_desc_item', '')).upper()
+                if 'DESCUENTO' in nombre_producto or 'DESCESPEC' in nombre_producto:
+                    logger.warning(f"Nota crédito rechazada sin tipo: {self.obtener_numero_factura_completo(factura)} - "
+                                 f"Producto: {nombre_producto[:50]}")
+                    return False
+
             logger.warning(f"Factura sin tipo de inventario: {self.obtener_numero_factura_completo(factura)}")
-            return True  # Permitir si no tiene tipo definido
-        
+            return True  # Permitir si no tiene tipo definido (excepto descuentos en notas)
+
         # Comparar con lista de excluidos (ya normalizada en el conjunto)
         es_permitido = tipo_inventario not in self.TIPOS_INVENTARIO_EXCLUIDOS
-        
+
         if not es_permitido:
             logger.debug(f"Tipo de inventario excluido detectado: '{tipo_inventario}' "
                         f"(Factura: {self.obtener_numero_factura_completo(factura)})")
-        
+
         return es_permitido
     
     def agrupar_por_factura(self, facturas: List[Dict]) -> Dict[str, List[Dict]]:
