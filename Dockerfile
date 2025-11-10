@@ -1,7 +1,7 @@
 # ============================================
 # Multi-stage Dockerfile para CIPA
 # Frontend (React + Vite) + Backend (Flask)
-# Optimizado para Railway deployment
+# Optimizado para Render.com deployment
 # ============================================
 
 FROM node:20-alpine AS frontend-builder
@@ -35,7 +35,7 @@ LABEL description="CIPA - Sistema de Gestión de Notas de Crédito"
 # Variables de entorno
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=5000 \
+    PORT=10000 \
     BASE_PATH=/intranet/cipa
 
 # Crear usuario no-root para seguridad

@@ -1,0 +1,48 @@
+# ============================================
+# Render.com Blueprint - CIPA
+# Deployment automático desde GitHub
+# ============================================
+
+services:
+  # Web Service - Aplicación CIPA (Frontend + Backend)
+  - type: web
+    name: cipa
+    runtime: docker
+    plan: free
+    region: oregon # Cambia a tu región preferida
+    branch: claude/deploy-railway-intranet-setup-011CUzK7LHYPqoX7JVpmDm4y
+    dockerfilePath: ./Dockerfile
+
+    # Health Check
+    healthCheckPath: /intranet/cipa/api/health
+
+    # Variables de Entorno
+    envVars:
+      - key: PORT
+        value: 10000
+
+      - key: BASE_PATH
+        value: /intranet/cipa
+
+      - key: VITE_BASE_PATH
+        value: /intranet/cipa
+
+      - key: DEBUG
+        value: false
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      # JWT Secret - IMPORTANTE: Cambiar en producción
+      - key: JWT_SECRET_KEY
+        generateValue: true
+        # Render generará automáticamente un valor aleatorio seguro
+
+    # Auto-deploy cuando hay commits
+    autoDeploy: true
+
+    # Disco persistente para la base de datos SQLite
+    disk:
+      name: cipa-data
+      mountPath: /app/backend/data
+      sizeGB: 1

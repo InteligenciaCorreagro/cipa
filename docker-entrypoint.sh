@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================
-# Script de inicio para CIPA en Railway
+# Script de inicio para CIPA en Render
 # ============================================
 
 set -e
 
 echo "================================================"
-echo "🚀 Iniciando CIPA en Railway"
+echo "🚀 Iniciando CIPA en Render"
 echo "================================================"
 echo "Base Path: $BASE_PATH"
 echo "Puerto: $PORT"

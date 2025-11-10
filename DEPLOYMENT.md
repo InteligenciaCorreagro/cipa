@@ -1,408 +1,561 @@
-# 🚀 Guía de Deployment - CIPA en Railway
+# 🚀 Guía de Deployment - CIPA en Render.com
 
-Esta guía te llevará paso a paso para desplegar la aplicación CIPA en Railway de forma **100% GRATUITA** y configurarla para que funcione en el subpath `correagro.com/intranet/cipa`.
+Esta guía te llevará paso a paso para desplegar la aplicación CIPA en Render.com de forma **100% GRATUITA** (sin tarjeta de crédito) y configurarla para que funcione en el subpath `correagro.com/intranet/cipa` o subdominio.
 
 ---
 
 ## 📋 Tabla de Contenidos
 
-1. [Requisitos Previos](#requisitos-previos)
-2. [Deployment en Railway](#deployment-en-railway)
-3. [Configuración de Variables de Entorno](#configuración-de-variables-de-entorno)
-4. [Configuración de GoDaddy](#configuración-de-godaddy)
-5. [Verificación del Deployment](#verificación-del-deployment)
+1. [¿Por qué Render?](#por-qué-render)
+2. [Deployment Paso a Paso](#deployment-paso-a-paso)
+3. [Configuración de Dominio](#configuración-de-dominio)
+4. [Verificación](#verificación)
+5. [Medidas de Seguridad](#medidas-de-seguridad)
 6. [Solución de Problemas](#solución-de-problemas)
-7. [Medidas de Seguridad](#medidas-de-seguridad)
 
 ---
 
-## ✅ Requisitos Previos
+## ✨ ¿Por qué Render?
 
-- ✅ Cuenta en [Railway.app](https://railway.app) (con GitHub)
-- ✅ Repositorio en GitHub con el código de CIPA
-- ✅ Acceso a la cuenta de GoDaddy con el dominio `correagro.com`
-- ✅ Usuario administrador creado en la aplicación (ver sección de inicialización)
-
----
-
-## 🚂 Deployment en Railway
-
-### Paso 1: Crear Proyecto en Railway
-
-1. **Inicia sesión en Railway**
-   - Ve a [https://railway.app](https://railway.app)
-   - Haz clic en "Login" y autentícate con tu cuenta de GitHub
-
-2. **Crear nuevo proyecto**
-   - Haz clic en "New Project"
-   - Selecciona "Deploy from GitHub repo"
-   - Busca y selecciona el repositorio `InteligenciaCorreagro/cipa`
-   - Selecciona la rama `claude/deploy-railway-intranet-setup-011CUzK7LHYPqoX7JVpmDm4y`
-
-3. **Railway detectará automáticamente el Dockerfile**
-   - Railway usará el archivo `Dockerfile` en la raíz del proyecto
-   - El build comenzará automáticamente
-
-### Paso 2: Esperar el Build
-
-El proceso de build tomará aproximadamente **5-10 minutos**. Railway:
-- ✅ Construirá el frontend con React + Vite
-- ✅ Instalará las dependencias de Python
-- ✅ Configurará el backend Flask
-- ✅ Creará la imagen Docker optimizada
+- ✅ **100% gratis** sin tarjeta de crédito
+- ✅ **750 horas/mes** de ejecución gratis
+- ✅ **HTTPS automático** y renovación
+- ✅ **Deploy desde GitHub** automático
+- ✅ **Dockerfile support** nativo
+- ✅ **Disco persistente** para SQLite (1GB gratis)
+- ✅ **Mejor que Railway** para cuentas gratuitas
 
 ---
 
-## ⚙️ Configuración de Variables de Entorno
+## 🚂 Deployment Paso a Paso
 
-### Paso 3: Configurar Variables en Railway
+### Paso 1: Crear Cuenta en Render
 
-1. **Ve a la sección de Variables**
-   - En tu proyecto de Railway, haz clic en la pestaña "Variables"
-
-2. **Agregar las siguientes variables:**
-
-   ```bash
-   # 🔐 SEGURIDAD - JWT (OBLIGATORIO)
-   JWT_SECRET_KEY=<GENERAR_CLAVE_ALEATORIA_64_CARACTERES>
-
-   # 🌍 CONFIGURACIÓN DE RUTA
-   BASE_PATH=/intranet/cipa
-   VITE_BASE_PATH=/intranet/cipa
-
-   # 🐛 DEBUG (Producción)
-   DEBUG=False
-
-   # 📊 LOGGING
-   LOG_LEVEL=INFO
-   ```
-
-3. **Generar JWT_SECRET_KEY seguro:**
-
-   En tu terminal local, ejecuta:
-   ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(64))"
-   ```
-
-   Copia el resultado y úsalo como valor de `JWT_SECRET_KEY`.
-
-4. **Aplicar cambios**
-   - Haz clic en "Add" o "Update"
-   - Railway reiniciará automáticamente el servicio
+1. Ve a [https://render.com](https://render.com)
+2. Click en **"Get Started for Free"**
+3. Regístrate con tu cuenta de **GitHub** (recomendado)
+4. Confirma tu email
+5. **¡No se requiere tarjeta de crédito!** ✅
 
 ---
 
-## 🌐 Configuración de GoDaddy
+### Paso 2: Crear Web Service
 
-### Paso 4: Obtener URL de Railway
-
-1. **En Railway, ve a Settings > Networking**
-2. **Genera un dominio público:**
-   - Haz clic en "Generate Domain"
-   - Obtendrás una URL como: `https://tu-proyecto.up.railway.app`
-3. **Copia esta URL** (la necesitarás para GoDaddy)
-
-### Paso 5: Configurar Subpath en GoDaddy
-
-Hay **dos opciones** para configurar el subpath en GoDaddy:
+1. En tu Render Dashboard, click en **"New +"** (esquina superior derecha)
+2. Selecciona **"Web Service"**
+3. Click en **"Build and deploy from a Git repository"**
+4. Click **"Next"**
 
 ---
 
-#### **OPCIÓN A: Redirect con Path Forwarding (Recomendado)**
+### Paso 3: Conectar Repositorio de GitHub
 
-Esta opción es más simple y funciona mejor para subpaths.
+1. **Primera vez:** Render pedirá permiso para acceder a GitHub
+   - Click **"Connect GitHub"**
+   - Autoriza a Render
+
+2. **Seleccionar repositorio:**
+   - Busca: `InteligenciaCorreagro/cipa`
+   - Click en **"Connect"** junto al repositorio
+
+---
+
+### Paso 4: Configurar el Servicio
+
+Llena los siguientes campos:
+
+| Campo | Valor | Descripción |
+|-------|-------|-------------|
+| **Name** | `cipa` | Nombre de tu servicio (aparecerá en la URL) |
+| **Region** | `Oregon (US West)` | Región del servidor (elegir la más cercana) |
+| **Branch** | `claude/deploy-railway-intranet-setup-011CUzK7LHYPqoX7JVpmDm4y` | Rama de deployment |
+| **Root Directory** | *(vacío)* | Dejar en blanco |
+| **Environment** | `Docker` | ✅ Render detectará el Dockerfile automáticamente |
+| **Instance Type** | `Free` | Plan gratuito |
+
+---
+
+### Paso 5: Configurar Variables de Entorno
+
+**MUY IMPORTANTE:** Scroll down hasta la sección **"Environment Variables"**.
+
+Agrega las siguientes variables haciendo click en **"Add Environment Variable"**:
+
+#### 🔐 Variables Obligatorias:
+
+```bash
+# 1. JWT Secret Key
+Key: JWT_SECRET_KEY
+Value: [Click en "Generate" para crear valor aleatorio]
+
+# 2. Base Path (para subpath)
+Key: BASE_PATH
+Value: /intranet/cipa
+
+# 3. Base Path Frontend
+Key: VITE_BASE_PATH
+Value: /intranet/cipa
+
+# 4. Puerto
+Key: PORT
+Value: 10000
+
+# 5. Debug Mode
+Key: DEBUG
+Value: False
+
+# 6. Log Level
+Key: LOG_LEVEL
+Value: INFO
+```
+
+**💡 Tip:** Para `JWT_SECRET_KEY`, Render tiene un botón **"Generate"** que crea un valor aleatorio seguro automáticamente.
+
+---
+
+### Paso 6: Agregar Disco Persistente (¡IMPORTANTE!)
+
+⚠️ **Sin este paso, tu base de datos se reseteará en cada deploy.**
+
+1. Scroll down hasta **"Disks"** o **"Persistent Disks"**
+2. Click en **"Add Disk"**
+3. Configurar:
+   - **Name:** `cipa-data`
+   - **Mount Path:** `/app/backend/data`
+   - **Size:** `1 GB` (gratis)
+4. Click **"Add"**
+
+---
+
+### Paso 7: Crear el Servicio
+
+1. Revisa toda la configuración
+2. Click en **"Create Web Service"** al final de la página
+3. Render comenzará el build automáticamente
+
+⏳ **Tiempo estimado del primer build:** 8-12 minutos
+
+Verás el progreso en tiempo real:
+- ✅ Clonando repositorio...
+- ✅ Building frontend (React + Vite)...
+- ✅ Installing Python dependencies...
+- ✅ Building Docker image...
+- ✅ Deploying...
+- ✅ **Live** ✅
+
+---
+
+### Paso 8: Obtener URL del Servicio
+
+Una vez que el status sea **"Live"** (en verde):
+
+1. Tu URL será algo como: `https://cipa-XXXX.onrender.com`
+2. Copia esta URL (la necesitarás para configurar el dominio)
+
+---
+
+## 🌐 Configuración de Dominio
+
+Tienes **3 opciones** para configurar tu dominio `correagro.com`:
+
+---
+
+### **OPCIÓN 1: Subdominio** ⭐ **RECOMENDADO**
+
+**Resultado final:** `https://intranet.correagro.com`
+
+**Ventajas:**
+- ✅ Configuración MUY simple (5 minutos)
+- ✅ No requiere servicios adicionales
+- ✅ Mejor performance
+- ✅ Más profesional
+
+#### Pasos en GoDaddy:
 
 1. **Inicia sesión en GoDaddy**
    - Ve a [https://godaddy.com](https://godaddy.com)
-   - Inicia sesión con tu cuenta
+   - Login → **"My Products"**
 
-2. **Ve a Dominios > correagro.com**
-   - Haz clic en "Administrar" junto a `correagro.com`
+2. **Administrar DNS del dominio**
+   - Encuentra `correagro.com`
+   - Click en **"DNS"** o en los 3 puntos **"..."** → **"Manage DNS"**
 
-3. **Configurar Forwarding (Redirección con Path)**
+3. **Agregar registro CNAME**
+   - Scroll down a la sección **"Records"**
+   - Click en **"Add"** o **"Add Record"**
 
-   En GoDaddy, las redirecciones de subpath se configuran mediante:
-   - **Subdirectorios + Forwarding**
-
-   **Pasos:**
-
-   a. **Crear un subdirectorio forwarding:**
-      - Ve a "Forwarding" o "Redirección"
-      - Haz clic en "Add" o "Agregar"
-      - En "Domain/Subdirectory" ingresa: `correagro.com/intranet/cipa`
-      - En "Forward to" ingresa: `https://tu-proyecto.up.railway.app/intranet/cipa`
-      - Tipo: `301 (Permanent)` o `302 (Temporary)`
-      - Forward settings: Selecciona "Forward only" o "Forward with masking"
-      - Haz clic en "Save"
-
----
-
-#### **OPCIÓN B: Reverse Proxy con Cloudflare (Avanzado)**
-
-Si necesitas mantener la URL `correagro.com/intranet/cipa` visible en el navegador sin redirección, necesitarás un reverse proxy.
-
-**GoDaddy no soporta reverse proxy directamente**, pero puedes usar **Cloudflare** (gratuito):
-
-1. **Configurar Cloudflare**
-   - Crea cuenta en [Cloudflare](https://cloudflare.com)
-   - Agrega el dominio `correagro.com`
-   - Cambia los nameservers en GoDaddy a los de Cloudflare
-
-2. **Crear Cloudflare Worker para Reverse Proxy**
-
-   a. Ve a Workers & Pages > Create Worker
-
-   b. Usa este código:
-
-   ```javascript
-   addEventListener('fetch', event => {
-     event.respondWith(handleRequest(event.request))
-   })
-
-   async function handleRequest(request) {
-     const url = new URL(request.url)
-
-     // Si la ruta comienza con /intranet/cipa
-     if (url.pathname.startsWith('/intranet/cipa')) {
-       // Proxy a Railway
-       const railwayUrl = 'https://tu-proyecto.up.railway.app' + url.pathname + url.search
-
-       const modifiedRequest = new Request(railwayUrl, {
-         method: request.method,
-         headers: request.headers,
-         body: request.body
-       })
-
-       const response = await fetch(modifiedRequest)
-       return response
-     }
-
-     // Para otras rutas, continuar normal
-     return fetch(request)
-   }
+   Configurar:
+   ```
+   Type: CNAME
+   Name: intranet
+   Value: cipa-XXXX.onrender.com.
+   TTL: 1 Hour
    ```
 
-   c. **Deploy el Worker**
+   ⚠️ **IMPORTANTE:** El punto al final de `.onrender.com.` es obligatorio
 
-   d. **Configurar Route en Cloudflare:**
-      - Ve a Workers > Routes
-      - Agrega route: `correagro.com/intranet/cipa/*`
-      - Selecciona el Worker creado
+4. **Guardar** → Click **"Save"**
 
----
+5. **Esperar propagación DNS:** 5-30 minutos
 
-### ⚠️ Limitaciones de GoDaddy
+#### Pasos en Render:
 
-**IMPORTANTE:** GoDaddy tiene limitaciones significativas para configurar subpaths:
+1. **Ve a tu servicio en Render Dashboard**
+2. Click en **"Settings"** (tab superior)
+3. Scroll down a **"Custom Domains"**
+4. Click **"Add Custom Domain"**
+5. Ingresar: `intranet.correagro.com`
+6. Click **"Save"**
+7. Render verificará automáticamente el DNS
+8. **HTTPS se configurará automáticamente** (gratis con Let's Encrypt)
 
-1. **No soporta reverse proxy nativo**
-   - Solo permite forwarding (redirección)
+#### Actualizar Variables de Entorno:
 
-2. **Forwarding con subpath:**
-   - La redirección cambiará la URL en el navegador
-   - No es completamente "transparente"
+Ya que ahora usas el dominio raíz (no subpath):
 
-3. **Alternativas recomendadas:**
-   - ✅ **Cloudflare Workers** (gratuito, mejor opción)
-   - ✅ **Migrar a un hosting con soporte de reverse proxy** (Nginx, Apache)
-   - ✅ **Usar un subdominio en lugar de subpath:** `cipa.correagro.com`
-
----
-
-### 🎯 Opción Alternativa: Usar Subdominios
-
-Si las limitaciones de subpath son problemáticas, considera usar un **subdominio**:
-
-**En lugar de:** `correagro.com/intranet/cipa`
-**Usar:** `intranet.correagro.com` o `cipa.correagro.com`
-
-**Ventajas:**
-- ✅ Configuración más simple en GoDaddy (solo DNS)
-- ✅ No requiere Cloudflare Workers
-- ✅ Mejor performance
-- ✅ Sin limitaciones de proxy
-
-**Configuración en GoDaddy para subdominios:**
-
-1. Ve a DNS Management
-2. Agrega un registro CNAME:
-   - **Type:** CNAME
-   - **Name:** `intranet` (o `cipa`)
-   - **Value:** `tu-proyecto.up.railway.app.`
-   - **TTL:** 1 Hour
-3. Guarda los cambios
-
-4. Actualiza variables en Railway:
+1. **Settings** → **Environment**
+2. Editar estas variables:
    ```bash
-   BASE_PATH=/
-   VITE_BASE_PATH=/
+   BASE_PATH = /
+   VITE_BASE_PATH = /
    ```
+3. Click **"Save Changes"**
+
+#### Redeploy:
+
+1. **Settings** → Scroll down
+2. Click en **"Manual Deploy"** → **"Deploy latest commit"**
+3. Esperar ~5 minutos
+
+✅ **¡Listo!** Accede en: `https://intranet.correagro.com`
+
+---
+
+### **OPCIÓN 2: Subpath con Cloudflare Workers**
+
+**Resultado final:** `https://correagro.com/intranet/cipa`
+
+⚠️ **GoDaddy NO soporta subpaths directamente.** Necesitas Cloudflare (gratis) como proxy.
+
+Ver guía completa en **[RENDER_DEPLOY.md](./RENDER_DEPLOY.md)** - Sección "OPCIÓN 3: Cloudflare Workers"
+
+**Resumen:**
+1. Crear cuenta en Cloudflare (gratis)
+2. Agregar dominio `correagro.com` a Cloudflare
+3. Cambiar nameservers en GoDaddy a los de Cloudflare
+4. Crear Worker con código de proxy reverso
+5. Configurar route: `correagro.com/intranet/cipa/*`
+
+---
+
+### **OPCIÓN 3: Forwarding Simple (No Recomendado)**
+
+Si solo necesitas una redirección simple (la URL cambiará en el navegador):
+
+**En GoDaddy:**
+1. Dominios → `correagro.com` → **"Forwarding"**
+2. **"Add Forwarding"**
+3. Forward from: `http://correagro.com/intranet/cipa`
+4. Forward to: `https://cipa-XXXX.onrender.com/intranet/cipa`
+5. Type: 301 (Permanent)
+
+⚠️ **Limitación:** Los usuarios verán la URL de Render en el navegador.
 
 ---
 
 ## ✅ Verificación del Deployment
 
-### Paso 6: Verificar que la Aplicación Funciona
+### 1. Health Check
 
-1. **Health Check**
-   - Abre tu navegador
-   - Ve a: `https://tu-proyecto.up.railway.app/intranet/cipa/api/health`
-   - Deberías ver:
-     ```json
-     {
-       "status": "healthy",
-       "timestamp": "2025-11-10T...",
-       "version": "1.0.1",
-       "base_path": "/intranet/cipa"
-     }
-     ```
+Abre tu navegador o usa `curl`:
 
-2. **Acceder a la Interfaz**
-   - Ve a: `https://correagro.com/intranet/cipa` (o tu URL configurada)
-   - Deberías ver la página de login de CIPA
+```bash
+# Con subdominio:
+curl https://intranet.correagro.com/api/health
 
-3. **Verificar Login**
-   - Ingresa con las credenciales creadas
-   - Si no tienes usuario, sigue la sección de inicialización
+# Con subpath:
+curl https://correagro.com/intranet/cipa/api/health
+
+# Respuesta esperada:
+{
+  "status": "healthy",
+  "timestamp": "2025-11-10T...",
+  "version": "1.0.1",
+  "base_path": "/intranet/cipa"
+}
+```
+
+### 2. Acceder a la Interfaz
+
+- Abre tu navegador
+- Ve a tu URL configurada
+- Deberías ver la **página de login de CIPA**
+
+### 3. Crear Usuario Administrador
+
+Necesitas crear al menos un usuario para poder acceder.
+
+**Desde Render Shell:**
+
+1. Render Dashboard → Tu servicio
+2. Click en **"Shell"** (tab superior derecha)
+3. Espera a que cargue la terminal
+4. Ejecutar:
+   ```bash
+   cd /app/backend
+   python scripts/inicializar_auth.py
+   ```
+5. Seguir las instrucciones en pantalla
+
+**Alternativa - Desde tu computadora local:**
+
+```bash
+# Si tienes acceso al repositorio
+cd backend
+python scripts/inicializar_auth.py
+```
 
 ---
 
 ## 🔐 Medidas de Seguridad Implementadas
 
-La aplicación incluye múltiples capas de seguridad:
-
 ### ✅ Autenticación y Autorización
 - **JWT (JSON Web Tokens)** con Access + Refresh tokens
 - **Expiración de tokens:** Access (1 hora), Refresh (30 días)
-- **Password hashing** con bcrypt (salt rounds: 12)
-- **Rate limiting** en endpoints de login (5 intentos/minuto)
-- **Bloqueo automático** tras múltiples intentos fallidos
+- **Password hashing** con bcrypt (12 rounds)
+- **Rate limiting** en login (5 intentos/minuto)
+- **Bloqueo automático** tras intentos fallidos
 
 ### ✅ Seguridad de Red
-- **CORS** configurado para orígenes permitidos
-- **HTTPS** forzado en Railway (automático)
-- **Proxy headers** validados (X-Forwarded-For, X-Real-IP)
+- **CORS** configurado
+- **HTTPS automático** en Render (Let's Encrypt)
+- **Proxy headers** validados
 
 ### ✅ Seguridad de Datos
 - **Base de datos SQLite** con permisos restrictivos
-- **Logs de auditoría** de accesos y operaciones
-- **Sesiones revocables** (logout invalida tokens)
+- **Logs de auditoría** de accesos
+- **Sesiones revocables**
+- **Disco persistente** protegido
 
 ### ✅ Buenas Prácticas
 - **Usuario no-root** en Docker
-- **Variables de entorno** para configuración sensible
-- **Health checks** para monitoreo
-- **Dependencias actualizadas** y sin vulnerabilidades conocidas
+- **Variables de entorno** para secretos
+- **Health checks** automáticos
+- **Dependencias actualizadas**
 
-### ✅ Recomendaciones Adicionales
+### 🔒 Recomendaciones Adicionales
 
-1. **Cambia el JWT_SECRET_KEY regularmente**
-   - Cada 3-6 meses o si sospechas de compromiso
+1. **Rotar JWT_SECRET_KEY regularmente**
+   - Cada 3-6 meses
+   - Cuando sospechas de compromiso
 
-2. **Monitorea los logs**
-   - Revisa logs en Railway Dashboard > Deployments > Logs
+2. **Backup de base de datos**
+   ```bash
+   # Desde Render Shell:
+   cp /app/backend/data/notas_credito.db /tmp/backup-$(date +%Y%m%d).db
+   ```
 
-3. **Backup de base de datos**
-   - Configura backups automáticos de `/app/backend/data/notas_credito.db`
+3. **Monitorear logs**
+   - Render Dashboard → **Logs** (tab)
+   - Revisar semanalmente
 
-4. **Límites de recursos**
-   - Railway Free Tier: 500 horas/mes, 512MB RAM, 1GB storage
-   - Monitorea el uso en Railway Dashboard
+4. **Configurar alertas**
+   - Render Dashboard → Settings → **Notifications**
+   - Agregar email o webhook
+
+5. **Evitar sleep (opcional)**
+   - Configurar ping cada 10 min
+   - Usar [UptimeRobot](https://uptimerobot.com) (gratis)
+   - O actualizar a plan Starter ($7/mes) para instancia always-on
 
 ---
 
 ## 🐛 Solución de Problemas
 
-### Error: "Application failed to respond"
+### ❌ Build Failed
 
-**Causa:** La aplicación no está respondiendo en el puerto correcto.
+**Síntomas:** El deploy falla con errores durante el build.
 
 **Solución:**
-1. Verifica que la variable `PORT` esté configurada en Railway
-2. Revisa los logs: Railway Dashboard > Logs
-3. Verifica que el health check funcione
+1. Ver logs: Dashboard → **Logs**
+2. Identificar el error específico
+3. Errores comunes:
+   - Dependencia faltante → Agregar a `requirements.txt`
+   - Error de sintaxis → Revisar código
+   - Timeout → Es normal en primer deploy, reintenta
 
 ---
 
-### Error: "Token inválido" en el frontend
+### ❌ Application Unavailable / 502 Bad Gateway
 
-**Causa:** JWT_SECRET_KEY no está configurado o cambió.
+**Síntomas:** La app no responde o muestra error 502.
+
+**Causas posibles:**
+1. Puerto incorrecto
+2. App no inició correctamente
+3. Health check fallando
 
 **Solución:**
-1. Configura `JWT_SECRET_KEY` en Railway
-2. Reinicia el servicio
-3. Limpia el localStorage del navegador (F12 > Application > Local Storage > Clear)
+1. Verificar `PORT=10000` en Environment Variables
+2. Ver logs: ¿La app inició?
+3. Probar health check manualmente
+4. Verificar que Dockerfile está correcto
 
 ---
 
-### Error: "Cannot GET /intranet/cipa"
+### ❌ "Token inválido" en el Frontend
 
-**Causa:** El routing no está configurado correctamente.
+**Síntomas:** No puedes hacer login o te desloguea constantemente.
+
+**Causas:**
+- `JWT_SECRET_KEY` no configurado
+- `JWT_SECRET_KEY` cambió después del login
 
 **Solución:**
-1. Verifica que `BASE_PATH` y `VITE_BASE_PATH` estén configurados
-2. Verifica que el build del frontend se ejecutó con la variable `VITE_BASE_PATH`
-3. Verifica los logs del servidor
+1. Verificar que `JWT_SECRET_KEY` existe en Environment Variables
+2. Si lo cambiaste, todos deben volver a loguearse
+3. Limpiar localStorage del navegador:
+   - F12 → Application → Local Storage → Clear All
 
 ---
 
-### La página carga pero los estilos no se aplican
+### ❌ Base de Datos se Resetea en Cada Deploy
 
-**Causa:** Las rutas de los assets no son correctas con el subpath.
+**Síntomas:** Pierdes todos los datos después de un deploy.
+
+**Causa:** No configuraste el Persistent Disk.
 
 **Solución:**
-1. Verifica que `VITE_BASE_PATH=/intranet/cipa` esté configurado **ANTES** del build
-2. Rebuild el proyecto en Railway:
-   - Ve a Deployments
-   - Haz clic en "Redeploy"
+1. Settings → Disks → **Add Disk**
+2. Mount path: `/app/backend/data`
+3. Size: 1 GB
+4. **Redeploy**
 
 ---
 
-### GoDaddy: "No se puede crear forwarding con subpath"
+### ❌ DNS No Resuelve (Subdominio)
 
-**Causa:** GoDaddy no soporta forwarding de subpaths de manera nativa.
+**Síntomas:** `intranet.correagro.com` no carga.
+
+**Causas:**
+- Propagación DNS toma tiempo
+- CNAME mal configurado
 
 **Solución:**
-1. Usa Cloudflare Workers (ver Opción B arriba)
-2. O usa un subdominio en lugar de subpath (más simple)
+1. Esperar 15-30 minutos (puede tomar hasta 24h)
+2. Verificar DNS:
+   ```bash
+   nslookup intranet.correagro.com
+   ```
+3. Verificar que agregaste el punto final: `cipa-XXXX.onrender.com.`
+4. En GoDaddy, asegurarse que el registro esté **activo** (no pausado)
+
+---
+
+### ❌ Render: "Deploy Took Too Long"
+
+**Síntomas:** El build se cancela por timeout.
+
+**Causa:** Build muy lento (red, muchas dependencias).
+
+**Solución:**
+1. **Normal en primer deploy** - Render cachea después
+2. Esperar hasta 15 minutos
+3. Si falla, Render reintentará automáticamente
+4. Deployments subsecuentes serán más rápidos (~3-5 min)
+
+---
+
+### ❌ Sleep Mode - Primera Petición Lenta
+
+**Síntomas:** La app tarda 30-60s en responder después de inactividad.
+
+**Causa:** Plan Free de Render duerme la app tras 15 min de inactividad.
+
+**Soluciones:**
+
+**Opción A: Configurar Ping (Gratis)**
+1. Crear cuenta en [UptimeRobot](https://uptimerobot.com)
+2. Agregar monitor:
+   - Type: HTTP(s)
+   - URL: `https://intranet.correagro.com/api/health`
+   - Interval: 10 minutos
+3. La app nunca dormirá
+
+**Opción B: Upgrade a Starter Plan**
+- $7/mes
+- Instancia always-on (no sleep)
+- 512 MB RAM garantizados
+
+---
+
+## 📊 Monitoreo en Render
+
+### Dashboard de Render
+
+En tu servicio, tienes acceso a:
+
+**Metrics (Métricas):**
+- CPU usage
+- Memory usage
+- Request count
+- Response time
+- Bandwidth
+
+**Logs:**
+- En tiempo real
+- Filtros por severity
+- Descarga de logs
+
+**Deploy History:**
+- Todos los deploys anteriores
+- Rollback con 1 click
+
+**Events:**
+- Historial de eventos del servicio
+- Errors, warnings, info
 
 ---
 
 ## 📚 Recursos Adicionales
 
-- [Documentación de Railway](https://docs.railway.app)
+- [Documentación de Render](https://render.com/docs)
 - [Documentación de Flask](https://flask.palletsprojects.com/)
 - [Documentación de Vite](https://vitejs.dev)
-- [Documentación de Cloudflare Workers](https://developers.cloudflare.com/workers/)
-- [Documentación de GoDaddy DNS](https://www.godaddy.com/help/dns-management-19873)
+- [Documentación de GoDaddy DNS](https://www.godaddy.com/help/manage-dns-680)
 
 ---
 
-## 🎉 ¡Listo!
+## 🎉 ¡Listo para Producción!
 
-Si seguiste todos los pasos, tu aplicación CIPA debería estar funcionando en:
+Si seguiste todos los pasos, tu aplicación CIPA está ahora funcionando en:
 
-**URL de Railway:** `https://tu-proyecto.up.railway.app/intranet/cipa`
-**URL personalizada:** `https://correagro.com/intranet/cipa`
+**URL de Render (directa):** `https://cipa-XXXX.onrender.com/intranet/cipa`
+
+**URL personalizada (recomendada):** `https://intranet.correagro.com`
 
 ### Próximos Pasos
 
-1. **Crear usuarios adicionales** (si es necesario)
-2. **Importar datos históricos** de notas de crédito
-3. **Configurar backups automáticos** de la base de datos
-4. **Monitorear el uso** en Railway Dashboard
+1. ✅ Crear usuarios adicionales (si es necesario)
+2. ✅ Importar datos históricos de notas de crédito
+3. ✅ Configurar backups automáticos
+4. ✅ Configurar ping para evitar sleep (UptimeRobot)
+5. ✅ Monitorear logs regularmente
 
 ---
 
-## 🆘 ¿Necesitas Ayuda?
+## 🆘 ¿Necesitas Más Ayuda?
 
-Si tienes problemas con el deployment:
+Si tienes problemas:
 
-1. Revisa los logs en Railway Dashboard
-2. Verifica que todas las variables de entorno estén configuradas
-3. Asegúrate de que el health check funcione
-4. Contacta al soporte técnico si el problema persiste
+1. ✅ Revisa la sección [Solución de Problemas](#solución-de-problemas)
+2. ✅ Consulta los logs en Render Dashboard
+3. ✅ Verifica el health check
+4. ✅ Revisa **[RENDER_DEPLOY.md](./RENDER_DEPLOY.md)** para guía detallada
+5. ✅ Contacta al soporte de Render (muy rápidos)
 
 ---
 
 **¡Disfruta de CIPA en producción! 🚀**
+
+**Desarrollado con ❤️ por Correagro**
