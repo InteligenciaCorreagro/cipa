@@ -20,6 +20,9 @@ const queryClient = new QueryClient({
   },
 })
 
+// Obtener el base path desde el import.meta.env o usar '/' por defecto
+const BASE_PATH = import.meta.env.VITE_USE_SUBPATH === 'true' ? '/intranet/cipa' : '/'
+
 function App() {
   const initialize = useAuthStore((state) => state.initialize)
 
@@ -29,7 +32,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={BASE_PATH}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
