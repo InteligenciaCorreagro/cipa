@@ -39,13 +39,23 @@ export default defineConfig(({ mode }) => {
       sourcemap: mode === 'development',
       // Optimizaciones para producción
       minify: 'terser',
+      // Optimizar para ambientes con memoria limitada
+      chunkSizeWarningLimit: 1000,
+      terserOptions: {
+        compress: {
+          drop_console: mode === 'production',
+        },
+      },
       rollupOptions: {
         output: {
           manualChunks: {
             vendor: ['react', 'react-dom', 'react-router-dom'],
             ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+            utils: ['axios', '@tanstack/react-query', 'zustand'],
           },
         },
+        // Optimizar para reducir uso de memoria durante el build
+        maxParallelFileOps: 2,
       },
     },
   }
