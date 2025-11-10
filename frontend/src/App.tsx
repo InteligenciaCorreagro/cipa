@@ -10,9 +10,6 @@ import DashboardPage from '@/pages/DashboardPage'
 import NotasPage from '@/pages/NotasPage'
 import NotaDetailPage from '@/pages/NotaDetailPage'
 
-// Obtener base path de variable de entorno o usar default
-const BASE_PATH = import.meta.env.VITE_BASE_PATH || '';
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -32,7 +29,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename={BASE_PATH}>
+      <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
