@@ -9,6 +9,7 @@ import LoginPage from '@/pages/LoginPage'
 import DashboardPage from '@/pages/DashboardPage'
 import NotasPage from '@/pages/NotasPage'
 import NotaDetailPage from '@/pages/NotaDetailPage'
+import FacturasPage from '@/pages/FacturasPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +47,7 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="notas" element={<NotasPage />} />
             <Route path="notas/:id" element={<NotaDetailPage />} />
+            <Route path="facturas" element={<FacturasPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -6,7 +6,8 @@ import {
   FileText,
   LogOut,
   Menu,
-  X
+  X,
+  Receipt
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -24,6 +25,7 @@ export default function MainLayout() {
   const menuItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/notas', icon: FileText, label: 'Consulta de Notas' },
+    { path: '/facturas', icon: Receipt, label: 'Facturas Transadas' },
   ]
 
   return (

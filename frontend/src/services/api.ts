@@ -179,10 +179,20 @@ export const facturasApi = {
   },
 
   getTransacciones: async (params?: {
+    fecha_desde?: string
+    fecha_hasta?: string
+    nit_cliente?: string
+    codigo_producto?: string
+    tipo_inventario?: string
+    tiene_nota_credito?: boolean
+    estado?: string
     limite?: number
     offset?: number
-  }): Promise<PaginatedResponse<Transaccion>> => {
-    const { data } = await api.get<PaginatedResponse<Transaccion>>('/api/facturas/transacciones', { params })
+  }): Promise<PaginatedResponse<Transaccion> & { suma_total_transado: number }> => {
+    const { data } = await api.get<PaginatedResponse<Transaccion> & { suma_total_transado: number }>(
+      '/api/facturas/transacciones',
+      { params }
+    )
     return data
   },
 }

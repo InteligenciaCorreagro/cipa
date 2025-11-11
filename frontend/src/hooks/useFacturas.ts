@@ -33,6 +33,13 @@ export function useFactura(id: number) {
 }
 
 export function useTransacciones(params?: {
+  fecha_desde?: string
+  fecha_hasta?: string
+  nit_cliente?: string
+  codigo_producto?: string
+  tipo_inventario?: string
+  tiene_nota_credito?: boolean
+  estado?: string
   limite?: number
   offset?: number
 }) {

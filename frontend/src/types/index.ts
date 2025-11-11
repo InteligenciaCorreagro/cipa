@@ -123,10 +123,15 @@ export interface Transaccion {
   nombre_cliente: string
   codigo_producto: string
   nombre_producto: string
+  tipo_inventario: string | null
   valor_total: number
   valor_transado: number
   cantidad: number
   cantidad_transada: number
   estado: string
   tiene_nota_credito: boolean
+}
+
+export interface TransaccionesResponse extends PaginatedResponse<Transaccion> {
+  suma_total_transado: number
 }
