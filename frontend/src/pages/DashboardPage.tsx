@@ -311,20 +311,20 @@ export default function DashboardPage() {
                   {transacciones.items.map((transaccion) => (
                     <tr key={transaccion.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">{transaccion.numero_factura}</td>
-                      <td className="py-3 px-4">{new Date(transaccion.fecha_factura).toLocaleDateString('es-CO')}</td>
+                      <td className="py-3 px-4">{new Date(transaccion.f_fecha).toLocaleDateString('es-CO')}</td>
                       <td className="py-3 px-4">
                         <div>
-                          <p className="font-medium">{transaccion.nombre_cliente}</p>
-                          <p className="text-xs text-muted-foreground">{transaccion.nit_cliente}</p>
+                          <p className="font-medium">{transaccion.f_cliente_fact_razon_soc}</p>
+                          <p className="text-xs text-muted-foreground">{transaccion.f_cliente_desp}</p>
                         </div>
                       </td>
                       <td className="py-3 px-4">
                         <div>
-                          <p className="font-medium">{transaccion.nombre_producto}</p>
-                          <p className="text-xs text-muted-foreground">{transaccion.codigo_producto}</p>
+                          <p className="font-medium">{transaccion.f_desc_item}</p>
+                          <p className="text-xs text-muted-foreground">{transaccion.f_cod_item}</p>
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-right">{formatCurrency(transaccion.valor_total)}</td>
+                      <td className="py-3 px-4 text-right">{formatCurrency(transaccion.f_valor_subtotal_local)}</td>
                       <td className="py-3 px-4 text-right font-semibold text-green-600">
                         {formatCurrency(transaccion.valor_transado)}
                       </td>

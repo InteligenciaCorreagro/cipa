@@ -60,13 +60,13 @@ export default function FacturasPage() {
       ...transacciones.items.map(t =>
         [
           t.numero_factura,
-          t.fecha_factura,
-          t.nit_cliente,
-          `"${t.nombre_cliente}"`,
-          t.codigo_producto,
-          `"${t.nombre_producto}"`,
-          t.tipo_inventario || '',
-          t.valor_total,
+          t.f_fecha,
+          t.f_cliente_desp,
+          `"${t.f_cliente_fact_razon_soc}"`,
+          t.f_cod_item,
+          `"${t.f_desc_item}"`,
+          t.f_tipo_inv || '',
+          t.f_valor_subtotal_local,
           t.valor_transado,
           t.estado,
         ].join(',')
@@ -281,34 +281,34 @@ export default function FacturasPage() {
                       <tr key={transaccion.id} className="border-b hover:bg-muted/50">
                         <td className="py-3 px-4 font-mono text-sm">{transaccion.numero_factura}</td>
                         <td className="py-3 px-4">
-                          {new Date(transaccion.fecha_factura).toLocaleDateString('es-CO')}
+                          {new Date(transaccion.f_fecha).toLocaleDateString('es-CO')}
                         </td>
                         <td className="py-3 px-4">
                           <div>
-                            <p className="font-medium">{transaccion.nombre_cliente}</p>
-                            <p className="text-xs text-muted-foreground">{transaccion.nit_cliente}</p>
+                            <p className="font-medium">{transaccion.f_cliente_fact_razon_soc}</p>
+                            <p className="text-xs text-muted-foreground">{transaccion.f_cliente_desp}</p>
                           </div>
                         </td>
                         <td className="py-3 px-4">
                           <div>
-                            <p className="font-medium">{transaccion.nombre_producto}</p>
-                            <p className="text-xs text-muted-foreground">{transaccion.codigo_producto}</p>
+                            <p className="font-medium">{transaccion.f_desc_item}</p>
+                            <p className="text-xs text-muted-foreground">{transaccion.f_cod_item}</p>
                           </div>
                         </td>
                         <td className="py-3 px-4">
                           <span className="text-xs px-2 py-1 rounded bg-muted">
-                            {transaccion.tipo_inventario || 'N/A'}
+                            {transaccion.f_tipo_inv || 'N/A'}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div>
                             <p className="font-medium">{transaccion.cantidad_transada.toFixed(2)}</p>
                             <p className="text-xs text-muted-foreground">
-                              de {transaccion.cantidad.toFixed(2)}
+                              de {transaccion.f_cant_base.toFixed(2)}
                             </p>
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-right">{formatCurrency(transaccion.valor_total)}</td>
+                        <td className="py-3 px-4 text-right">{formatCurrency(transaccion.f_valor_subtotal_local)}</td>
                         <td className="py-3 px-4 text-right font-semibold text-green-600">
                           {formatCurrency(transaccion.valor_transado)}
                         </td>

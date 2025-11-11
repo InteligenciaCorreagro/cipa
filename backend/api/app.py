@@ -699,7 +699,7 @@ def estadisticas_facturas():
 @app.route('/api/facturas/transacciones', methods=['GET'])
 @jwt_required()
 def obtener_transacciones():
-    """Obtener grilla de transacciones (facturas con valores transados) con filtros"""
+    """Obtener grilla de transacciones con campos del API SIESA"""
     try:
         identity = get_jwt_identity()
         logger.debug(f"Usuario ID {identity} solicitando transacciones")
@@ -718,46 +718,56 @@ def obtener_transacciones():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Construir query dinámicamente
+        # Construir query con campos del API SIESA
         query = '''
             SELECT
                 id,
                 numero_factura,
-                fecha_factura,
-                nit_cliente,
-                nombre_cliente,
-                codigo_producto,
-                nombre_producto,
-                tipo_inventario,
-                valor_total,
+                f_prefijo,
+                f_nrodocto,
+                f_fecha,
+                f_cliente_desp,
+                f_cliente_fact_razon_soc,
+                f_cod_item,
+                f_desc_item,
+                f_tipo_inv,
+                f_desc_tipo_inv,
+                f_um_base,
+                f_um_inv_desc,
+                f_cant_base,
+                f_valor_subtotal_local,
+                f_precio_unit_docto,
+                f_desc_cond_pago,
+                f_ciudad_punto_envio,
                 valor_transado,
-                cantidad,
                 cantidad_transada,
                 estado,
-                tiene_nota_credito
+                tiene_nota_credito,
+                valor_total_factura,
+                factura_cumple_monto_minimo
             FROM facturas
             WHERE valor_transado > 0 AND es_valida = 1
         '''
         params = []
 
         if fecha_desde:
-            query += " AND fecha_factura >= ?"
+            query += " AND f_fecha >= ?"
             params.append(fecha_desde)
 
         if fecha_hasta:
-            query += " AND fecha_factura <= ?"
+            query += " AND f_fecha <= ?"
             params.append(fecha_hasta)
 
         if nit_cliente:
-            query += " AND nit_cliente = ?"
+            query += " AND f_cliente_desp = ?"
             params.append(nit_cliente)
 
         if codigo_producto:
-            query += " AND codigo_producto LIKE ?"
+            query += " AND f_cod_item LIKE ?"
             params.append(f"%{codigo_producto}%")
 
         if tipo_inventario:
-            query += " AND tipo_inventario = ?"
+            query += " AND f_tipo_inv = ?"
             params.append(tipo_inventario)
 
         if tiene_nota_credito is not None:
@@ -768,26 +778,44 @@ def obtener_transacciones():
             query += " AND estado = ?"
             params.append(estado)
 
-        query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY f_fecha DESC LIMIT ? OFFSET ?"
         params.extend([limite, offset])
 
         cursor.execute(query, params)
         transacciones = [dict(row) for row in cursor.fetchall()]
 
-        # Contar total con los mismos filtros
-        query_count = query.split('ORDER BY')[0].replace(
-            'SELECT\n                id,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                nombre_cliente,\n                codigo_producto,\n                nombre_producto,\n                tipo_inventario,\n                valor_total,\n                valor_transado,\n                cantidad,\n                cantidad_transada,\n                estado,\n                tiene_nota_credito\n            FROM facturas',
-            'SELECT COUNT(*) FROM facturas'
-        )
-        cursor.execute(query_count, params[:-2])
+        # Contar total
+        query_count = "SELECT COUNT(*) FROM facturas WHERE valor_transado > 0 AND es_valida = 1"
+        params_count = []
+
+        if fecha_desde:
+            query_count += " AND f_fecha >= ?"
+            params_count.append(fecha_desde)
+        if fecha_hasta:
+            query_count += " AND f_fecha <= ?"
+            params_count.append(fecha_hasta)
+        if nit_cliente:
+            query_count += " AND f_cliente_desp = ?"
+            params_count.append(nit_cliente)
+        if codigo_producto:
+            query_count += " AND f_cod_item LIKE ?"
+            params_count.append(f"%{codigo_producto}%")
+        if tipo_inventario:
+            query_count += " AND f_tipo_inv = ?"
+            params_count.append(tipo_inventario)
+        if tiene_nota_credito is not None:
+            query_count += " AND tiene_nota_credito = ?"
+            params_count.append(1 if tiene_nota_credito == 'true' else 0)
+        if estado:
+            query_count += " AND estado = ?"
+            params_count.append(estado)
+
+        cursor.execute(query_count, params_count)
         total = cursor.fetchone()[0]
 
-        # Obtener suma total de valores transados con filtros
-        query_sum = query.split('ORDER BY')[0].replace(
-            'SELECT\n                id,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                nombre_cliente,\n                codigo_producto,\n                nombre_producto,\n                tipo_inventario,\n                valor_total,\n                valor_transado,\n                cantidad,\n                cantidad_transada,\n                estado,\n                tiene_nota_credito\n            FROM facturas',
-            'SELECT SUM(valor_transado) FROM facturas'
-        )
-        cursor.execute(query_sum, params[:-2])
+        # Suma total de valores transados
+        query_sum = query_count.replace('COUNT(*)', 'SUM(valor_transado)')
+        cursor.execute(query_sum, params_count)
         suma_total = cursor.fetchone()[0] or 0
 
         conn.close()

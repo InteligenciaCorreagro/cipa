@@ -118,18 +118,28 @@ export interface EstadisticasFacturas {
 export interface Transaccion {
   id: number
   numero_factura: string
-  fecha_factura: string
-  nit_cliente: string
-  nombre_cliente: string
-  codigo_producto: string
-  nombre_producto: string
-  tipo_inventario: string | null
-  valor_total: number
+  f_prefijo: string
+  f_nrodocto: number
+  f_fecha: string
+  f_cliente_desp: string
+  f_cliente_fact_razon_soc: string
+  f_cod_item: string
+  f_desc_item: string
+  f_tipo_inv: string | null
+  f_desc_tipo_inv: string | null
+  f_um_base: string | null
+  f_um_inv_desc: string | null
+  f_cant_base: number
+  f_valor_subtotal_local: number
+  f_precio_unit_docto: number
+  f_desc_cond_pago: string | null
+  f_ciudad_punto_envio: string | null
   valor_transado: number
-  cantidad: number
   cantidad_transada: number
   estado: string
   tiene_nota_credito: boolean
+  valor_total_factura: number
+  factura_cumple_monto_minimo: boolean
 }
 
 export interface TransaccionesResponse extends PaginatedResponse<Transaccion> {
