@@ -104,7 +104,10 @@ except Exception as e:
 auth_manager = AuthManager()
 archivador = ArchivadorNotas()
 
-DB_PATH = BACKEND_DIR / 'data' / 'notas_credito.db'
+# Usar la misma base de datos que main.py y GitHub Actions
+# Apunta al directorio raíz del proyecto, no al subdirectorio backend
+PROJECT_ROOT = BACKEND_DIR.parent
+DB_PATH = Path(os.getenv('DB_PATH', str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
 
 
 def get_db_connection():
