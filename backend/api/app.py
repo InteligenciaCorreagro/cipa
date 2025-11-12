@@ -519,6 +519,243 @@ def obtener_aplicaciones(numero_nota):
 
 
 # =============================================================================
+# ENDPOINTS DE FACTURAS
+# =============================================================================
+
+@app.route('/api/facturas', methods=['GET'])
+@jwt_required()
+@limiter.limit("100 per minute")
+def listar_facturas():
+    """Listar facturas con filtros"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando listado de facturas")
+
+        estado = request.args.get('estado')
+        nit_cliente = request.args.get('nit_cliente')
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+        es_valida = request.args.get('es_valida')
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
+
+        query = "SELECT * FROM facturas WHERE 1=1"
+        params = []
+
+        if estado:
+            query += " AND estado = ?"
+            params.append(estado)
+
+        if nit_cliente:
+            query += " AND nit_cliente = ?"
+            params.append(nit_cliente)
+
+        if fecha_desde:
+            query += " AND fecha_factura >= ?"
+            params.append(fecha_desde)
+
+        if fecha_hasta:
+            query += " AND fecha_factura <= ?"
+            params.append(fecha_hasta)
+
+        if es_valida is not None:
+            query += " AND es_valida = ?"
+            params.append(1 if es_valida == 'true' else 0)
+
+        query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(query, params)
+        facturas = [dict(row) for row in cursor.fetchall()]
+
+        query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+
+        conn.close()
+
+        logger.debug(f"Retornando {len(facturas)} facturas de {total} totales")
+
+        return jsonify({
+            "items": facturas,
+            "total": total,
+            "limite": limite,
+            "offset": offset,
+            "total_paginas": (total + limite - 1) // limite
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en listar_facturas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener facturas"}), 500
+
+
+@app.route('/api/facturas/<int:factura_id>', methods=['GET'])
+@jwt_required()
+def obtener_factura(factura_id):
+    """Obtener detalles de una factura específica"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando factura {factura_id}")
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT * FROM facturas WHERE id = ?', (factura_id,))
+        factura = cursor.fetchone()
+
+        if not factura:
+            conn.close()
+            return jsonify({"error": "Factura no encontrada"}), 404
+
+        # Obtener notas de crédito asociadas si las hay
+        numero_factura = factura['numero_factura']
+        cursor.execute('''
+            SELECT * FROM aplicaciones_notas
+            WHERE numero_factura = ?
+            ORDER BY fecha_aplicacion DESC
+        ''', (numero_factura,))
+
+        aplicaciones = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        factura_dict = dict(factura)
+        factura_dict['aplicaciones'] = aplicaciones
+
+        return jsonify(factura_dict), 200
+
+    except Exception as e:
+        logger.error(f"Error en obtener_factura: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener factura"}), 500
+
+
+@app.route('/api/facturas/estadisticas', methods=['GET'])
+@jwt_required()
+def estadisticas_facturas():
+    """Obtener estadísticas generales de facturas"""
+    try:
+        identity = get_jwt_identity()
+        logger.info(f"Usuario ID {identity} solicitando estadísticas de facturas")
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        stats = {}
+
+        # Total de facturas
+        cursor.execute('SELECT COUNT(*) FROM facturas')
+        stats['total_facturas'] = cursor.fetchone()[0]
+
+        # Facturas válidas
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE es_valida = 1')
+        stats['facturas_validas'] = cursor.fetchone()[0]
+
+        # Facturas inválidas
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE es_valida = 0')
+        stats['facturas_invalidas'] = cursor.fetchone()[0]
+
+        # Valor total facturado
+        cursor.execute('SELECT SUM(valor_total) FROM facturas WHERE es_valida = 1')
+        stats['valor_total_facturado'] = cursor.fetchone()[0] or 0
+
+        # Valor total transado
+        cursor.execute('SELECT SUM(valor_transado) FROM facturas WHERE es_valida = 1')
+        stats['valor_total_transado'] = cursor.fetchone()[0] or 0
+
+        # Facturas con notas de crédito
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE tiene_nota_credito = 1')
+        stats['facturas_con_notas'] = cursor.fetchone()[0]
+
+        # Estadísticas por estado
+        cursor.execute('''
+            SELECT estado, COUNT(*) as cantidad, SUM(valor_total) as valor_total
+            FROM facturas
+            WHERE es_valida = 1
+            GROUP BY estado
+        ''')
+
+        stats['por_estado'] = [dict(row) for row in cursor.fetchall()]
+
+        # Últimas 30 días
+        cursor.execute('''
+            SELECT COUNT(*) FROM facturas
+            WHERE fecha_factura >= date('now', '-30 days')
+            AND es_valida = 1
+        ''')
+        stats['facturas_ultimos_30_dias'] = cursor.fetchone()[0]
+
+        conn.close()
+
+        logger.info(f"✅ Estadísticas de facturas retornadas exitosamente")
+        return jsonify(stats), 200
+
+    except Exception as e:
+        logger.error(f"Error en estadisticas_facturas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener estadísticas"}), 500
+
+
+@app.route('/api/facturas/transacciones', methods=['GET'])
+@jwt_required()
+def obtener_transacciones():
+    """Obtener grilla de transacciones (facturas con valores transados)"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando transacciones")
+
+        limite = int(request.args.get('limite', 50))
+        offset = int(request.args.get('offset', 0))
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Obtener facturas con transacciones (valor_transado > 0)
+        cursor.execute('''
+            SELECT
+                id,
+                numero_factura,
+                fecha_factura,
+                nit_cliente,
+                nombre_cliente,
+                codigo_producto,
+                nombre_producto,
+                valor_total,
+                valor_transado,
+                cantidad,
+                cantidad_transada,
+                estado,
+                tiene_nota_credito
+            FROM facturas
+            WHERE valor_transado > 0 AND es_valida = 1
+            ORDER BY fecha_factura DESC
+            LIMIT ? OFFSET ?
+        ''', (limite, offset))
+
+        transacciones = [dict(row) for row in cursor.fetchall()]
+
+        # Contar total
+        cursor.execute('''
+            SELECT COUNT(*) FROM facturas
+            WHERE valor_transado > 0 AND es_valida = 1
+        ''')
+        total = cursor.fetchone()[0]
+
+        conn.close()
+
+        return jsonify({
+            "items": transacciones,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en obtener_transacciones: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener transacciones"}), 500
+
+
+# =============================================================================
 # ENDPOINTS DE ARCHIVO
 # =============================================================================
 
