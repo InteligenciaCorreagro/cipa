@@ -29,22 +29,18 @@ class SiesaAPIClient:
         Returns:
             Lista de facturas en formato JSON
         """
-        # Formato con guiones para display
+        # Formato YYYY-MM-DD con comillas simples (como espera SIESA)
         fecha_str = fecha.strftime('%Y-%m-%d')
 
-        # Formato YYYYMMDD (sin guiones) - común en APIs SQL Server
-        fecha_str_sin_guiones = fecha.strftime('%Y%m%d')
-
-        # SIESA espera el formato YYYYMMDD sin guiones ni comillas
-        # El error "int is incompatible with date" indica que con guiones lo toma como operación matemática
+        # SIESA espera: FECHA_INI='2025-11-10'|FECHA_FIN='2025-11-10'
         params = {
             "idCompania": "37",
             "descripcion": "Api_Consulta_Fac_Correagro",
-            "parametros": f"FECHA_INI={fecha_str_sin_guiones}|FECHA_FIN={fecha_str_sin_guiones}"
+            "parametros": f"FECHA_INI='{fecha_str}'|FECHA_FIN='{fecha_str}'"
         }
 
         try:
-            logger.info(f"Consultando facturas para la fecha: {fecha_str} (formato API: {fecha_str_sin_guiones})")
+            logger.info(f"Consultando facturas para la fecha: {fecha_str}")
             logger.info(f"URL: {self.BASE_URL}")
             logger.info(f"Parámetros: {params}")
 
