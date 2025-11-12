@@ -8,9 +8,6 @@ import type {
   NotasPorEstado,
   PaginatedResponse,
   ApiError,
-  Factura,
-  EstadisticasFacturas,
-  Transaccion,
 } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:2500'
@@ -149,40 +146,6 @@ export const notasApi = {
 export const aplicacionesApi = {
   getAplicaciones: async (numeroNota: string): Promise<Aplicacion[]> => {
     const { data } = await api.get<Aplicacion[]>(`/api/aplicaciones/${numeroNota}`)
-    return data
-  },
-}
-
-// Facturas API
-export const facturasApi = {
-  getFacturas: async (params?: {
-    estado?: string
-    nit_cliente?: string
-    fecha_desde?: string
-    fecha_hasta?: string
-    es_valida?: boolean
-    limite?: number
-    offset?: number
-  }): Promise<PaginatedResponse<Factura>> => {
-    const { data } = await api.get<PaginatedResponse<Factura>>('/api/facturas', { params })
-    return data
-  },
-
-  getFactura: async (id: number): Promise<Factura> => {
-    const { data } = await api.get<Factura>(`/api/facturas/${id}`)
-    return data
-  },
-
-  getEstadisticas: async (): Promise<EstadisticasFacturas> => {
-    const { data } = await api.get<EstadisticasFacturas>('/api/facturas/estadisticas')
-    return data
-  },
-
-  getTransacciones: async (params?: {
-    limite?: number
-    offset?: number
-  }): Promise<PaginatedResponse<Transaccion>> => {
-    const { data } = await api.get<PaginatedResponse<Transaccion>>('/api/facturas/transacciones', { params })
     return data
   },
 }
