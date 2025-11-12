@@ -105,6 +105,7 @@ def recrear_tabla_facturas():
             cantidad_transada REAL DEFAULT 0,
             estado TEXT DEFAULT 'VALIDA',
             tiene_nota_credito BOOLEAN DEFAULT 0,
+            nota_aplicada TEXT,  -- Descripción de la nota de crédito aplicada (NULL si no tiene)
 
             -- Auditoría
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
