@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
 """
-Script para generar facturas diarias con descripción de notas aplicadas
-Período: 1-9 de noviembre 2025
-
-Este script:
-1. Obtiene facturas válidas de la API SIESA para cada día
-2. Filtra según reglas de negocio (tipos de inventario permitidos, monto mínimo)
-3. Aplica notas de crédito pendientes
-4. Agrega en la descripción qué nota se aplicó a cada factura
-5. Genera un Excel por día con las facturas procesadas
+Script para procesar facturas y guardarlas en la base de datos
+Genera Excel para operativa y guarda todas las líneas en la BD
 """
 
 import sys
@@ -16,6 +9,7 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import logging
+import sqlite3
 from collections import defaultdict
 
 # Agregar el directorio backend al path
@@ -25,6 +19,7 @@ from core.api_client import SiesaAPIClient
 from core.business_rules import BusinessRulesValidator
 from core.notas_credito_manager import NotasCreditoManager
 from core.excel_processor import ExcelProcessor
+from pathlib import Path
 
 # Configurar logging
 logging.basicConfig(
@@ -34,9 +29,88 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
+def guardar_facturas_en_bd(facturas_transformadas, notas_por_factura, fecha_proceso, db_path):
     """
-    Genera facturas diarias con descripción de notas aplicadas
+    Guarda las facturas procesadas en la base de datos (todas las líneas)
+
+    Args:
+        facturas_transformadas: Lista de facturas transformadas para Excel
+        notas_por_factura: Dict con notas aplicadas por factura {numero_factura: [notas]}
+        fecha_proceso: Fecha del proceso
+        db_path: Ruta de la base de datos
+    """
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    facturas_guardadas = 0
+    facturas_actualizadas = 0
+
+    for factura in facturas_transformadas:
+        numero_factura = factura['numero_factura']
+
+        # Determinar si tiene nota aplicada
+        tiene_nota = numero_factura in notas_por_factura
+        descripcion_nota = None
+
+        if tiene_nota:
+            notas_aplicadas = notas_por_factura[numero_factura]
+            if len(notas_aplicadas) == 1:
+                descripcion_nota = f"Nota aplicada: {notas_aplicadas[0]}"
+            else:
+                descripcion_nota = f"Notas aplicadas: {', '.join(notas_aplicadas)}"
+
+        try:
+            # Insertar o actualizar factura (puede existir si se procesa el mismo día múltiples veces)
+            cursor.execute('''
+                INSERT INTO facturas (
+                    numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                    codigo_producto, nombre_producto, tipo_inventario,
+                    valor_total, cantidad, valor_transado, cantidad_transada,
+                    descripcion_nota_aplicada, tiene_nota_credito, fecha_proceso
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
+                    valor_total = excluded.valor_total,
+                    cantidad = excluded.cantidad,
+                    valor_transado = excluded.valor_transado,
+                    cantidad_transada = excluded.cantidad_transada,
+                    descripcion_nota_aplicada = excluded.descripcion_nota_aplicada,
+                    tiene_nota_credito = excluded.tiene_nota_credito
+            ''', (
+                numero_factura,
+                factura.get('fecha_factura', fecha_proceso),
+                factura.get('nit_cliente', ''),
+                factura.get('nombre_cliente', ''),
+                factura.get('codigo_producto', ''),
+                factura.get('descripcion', ''),  # nombre_producto
+                factura.get('tipo_inventario', ''),
+                factura.get('valor_total', 0.0),
+                factura.get('cantidad', 0.0),
+                factura.get('valor_transado', 0.0),
+                factura.get('cantidad_transada', 0.0),
+                descripcion_nota,
+                1 if tiene_nota else 0,
+                fecha_proceso
+            ))
+
+            if cursor.rowcount > 0:
+                facturas_guardadas += 1
+            else:
+                facturas_actualizadas += 1
+
+        except Exception as e:
+            logger.error(f"Error guardando factura {numero_factura}: {e}")
+            continue
+
+    conn.commit()
+    conn.close()
+
+    logger.info(f"✅ Facturas guardadas en BD: {facturas_guardadas} nuevas, {facturas_actualizadas} actualizadas")
+    return facturas_guardadas
+
+
+def procesar_y_guardar_facturas(fecha_inicio, fecha_fin, output_dir='./output'):
+    """
+    Procesa facturas, aplica notas y guarda TODO en la base de datos
 
     Args:
         fecha_inicio: Fecha inicial del período (datetime)
@@ -48,7 +122,11 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
 
     CONNI_KEY = os.getenv('CONNI_KEY')
     CONNI_TOKEN = os.getenv('CONNI_TOKEN')
-    DB_PATH = os.getenv('DB_PATH', './data/notas_credito.db')
+
+    # Usar la BD del proyecto raíz
+    PROJECT_ROOT = Path(__file__).parent.parent.parent
+    DB_PATH = Path(os.getenv('DB_PATH', str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
+
     TEMPLATE_PATH = os.getenv('TEMPLATE_PATH', './templates/plantilla.xlsx')
 
     if not all([CONNI_KEY, CONNI_TOKEN]):
@@ -58,16 +136,17 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
     os.makedirs(output_dir, exist_ok=True)
 
     print("=" * 80)
-    print("GENERACIÓN DE FACTURAS DIARIAS CON NOTAS APLICADAS")
+    print("PROCESAMIENTO Y GUARDADO DE FACTURAS EN BD")
     print("=" * 80)
     print(f"\nFecha inicio: {fecha_inicio.strftime('%Y-%m-%d')}")
     print(f"Fecha fin: {fecha_fin.strftime('%Y-%m-%d')}")
+    print(f"Base de datos: {DB_PATH}")
     print(f"Directorio de salida: {output_dir}")
 
     # Inicializar componentes
     api_client = SiesaAPIClient(CONNI_KEY, CONNI_TOKEN)
     validator = BusinessRulesValidator()
-    notas_manager = NotasCreditoManager(DB_PATH)
+    notas_manager = NotasCreditoManager(str(DB_PATH))
     excel_processor = ExcelProcessor(TEMPLATE_PATH)
 
     # Estadísticas generales
@@ -76,6 +155,7 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
         'dias_procesados': 0,
         'dias_con_facturas': 0,
         'total_facturas_validas': 0,
+        'total_facturas_guardadas': 0,
         'total_notas_aplicadas': 0,
         'total_aplicaciones': 0,
         'valor_total_facturas': 0.0,
@@ -118,7 +198,7 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
             logger.info(f"  - Notas crédito: {len(notas_credito)}")
             logger.info(f"  - Facturas rechazadas: {len(facturas_rechazadas)}")
 
-            # Registrar notas crédito del día (si es necesario)
+            # Registrar notas crédito del día
             if notas_credito:
                 logger.info(f"Registrando {len(notas_credito)} notas crédito del día...")
                 notas_nuevas = 0
@@ -154,8 +234,7 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
 
             logger.info(f"Total de aplicaciones realizadas: {len(aplicaciones)}")
 
-            # Crear un diccionario de aplicaciones por factura para agregar a descripción
-            # Formato: {numero_factura: [lista de números de notas aplicadas]}
+            # Crear diccionario de aplicaciones por factura
             notas_por_factura = defaultdict(list)
             for app in aplicaciones:
                 numero_factura = app['numero_factura']
@@ -172,21 +251,16 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
                 for app in aplicaciones:
                     logger.info(f"  Nota {app['numero_nota']} -> Factura {app['numero_factura']}")
                     logger.info(f"    Valor aplicado: ${app['valor_aplicado']:,.2f}")
-                    logger.info(f"    Cantidad aplicada: {app['cantidad_aplicada']:.5f}")
                     logger.info(f"    Estado: {app['estado']}")
                     notas_unicas.add(app['numero_nota'])
                     valor_total_aplicado_dia += app['valor_aplicado']
-
-                logger.info(f"\nResumen del día:")
-                logger.info(f"  Notas únicas aplicadas: {len(notas_unicas)}")
-                logger.info(f"  Valor total aplicado: ${valor_total_aplicado_dia:,.2f}")
 
                 estadisticas_totales['total_notas_aplicadas'] += len(notas_unicas)
                 estadisticas_totales['total_aplicaciones'] += len(aplicaciones)
                 estadisticas_totales['valor_total_aplicado'] += valor_total_aplicado_dia
 
             # ====================================================================
-            # 5. AGREGAR DESCRIPCIÓN DE NOTAS APLICADAS
+            # 5. AGREGAR DESCRIPCIÓN DE NOTAS APLICADAS AL EXCEL
             # ====================================================================
             logger.info("Agregando descripción de notas aplicadas...")
             facturas_con_descripcion_notas = 0
@@ -194,44 +268,53 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
             for factura in facturas_transformadas:
                 numero_factura = factura['numero_factura']
 
-                # Si esta factura tiene notas aplicadas, agregar a la descripción
                 if numero_factura in notas_por_factura:
                     notas_aplicadas = notas_por_factura[numero_factura]
                     descripcion_original = factura.get('descripcion', '')
 
-                    # Crear descripción de notas aplicadas
                     if len(notas_aplicadas) == 1:
                         nota_desc = f"Nota aplicada: {notas_aplicadas[0]}"
                     else:
                         nota_desc = f"Notas aplicadas: {', '.join(notas_aplicadas)}"
 
-                    # Agregar a la descripción
                     if descripcion_original:
                         factura['descripcion'] = f"{descripcion_original} - {nota_desc}"
                     else:
                         factura['descripcion'] = nota_desc
 
                     facturas_con_descripcion_notas += 1
-                    logger.debug(f"Factura {numero_factura}: {nota_desc}")
 
             if facturas_con_descripcion_notas > 0:
                 logger.info(f"Facturas con descripción de notas: {facturas_con_descripcion_notas}")
 
             # ====================================================================
-            # 6. CALCULAR ESTADÍSTICAS DEL DÍA
+            # 6. GUARDAR FACTURAS EN LA BASE DE DATOS
+            # ====================================================================
+            logger.info("Guardando facturas en la base de datos...")
+            facturas_guardadas = guardar_facturas_en_bd(
+                facturas_transformadas,
+                notas_por_factura,
+                fecha_actual.date(),
+                DB_PATH
+            )
+            estadisticas_totales['total_facturas_guardadas'] += facturas_guardadas
+
+            # ====================================================================
+            # 7. CALCULAR ESTADÍSTICAS
             # ====================================================================
             valor_total_facturas_dia = sum(f.get('valor_total', 0.0) for f in facturas_transformadas)
             estadisticas_totales['total_facturas_validas'] += len(facturas_transformadas)
             estadisticas_totales['valor_total_facturas'] += valor_total_facturas_dia
 
             logger.info(f"\nEstadísticas del día:")
-            logger.info(f"  Facturas válidas: {len(facturas_transformadas)}")
+            logger.info(f"  Facturas procesadas: {len(facturas_transformadas)}")
+            logger.info(f"  Facturas guardadas en BD: {facturas_guardadas}")
             logger.info(f"  Valor total: ${valor_total_facturas_dia:,.2f}")
 
             # ====================================================================
-            # 7. GENERAR EXCEL CON FACTURAS PROCESADAS
+            # 8. GENERAR EXCEL PARA OPERATIVA
             # ====================================================================
-            output_filename = f"facturas_con_notas_{fecha_actual.strftime('%Y%m%d')}.xlsx"
+            output_filename = f"facturas_{fecha_actual.strftime('%Y%m%d')}.xlsx"
             output_path = os.path.join(output_dir, output_filename)
 
             logger.info(f"Generando archivo Excel: {output_filename}")
@@ -248,7 +331,6 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
 
         except Exception as e:
             logger.error(f"❌ Error procesando fecha {fecha_str}: {e}", exc_info=True)
-            # Continuar con el siguiente día en caso de error
             fecha_actual += timedelta(days=1)
             continue
 
@@ -264,7 +346,8 @@ def generar_facturas_con_notas(fecha_inicio, fecha_fin, output_dir='./output'):
     print(f"Días procesados: {estadisticas_totales['dias_procesados']} / {total_dias}")
     print(f"Días con facturas: {estadisticas_totales['dias_con_facturas']}")
     print(f"\nFacturas:")
-    print(f"  Total facturas válidas: {estadisticas_totales['total_facturas_validas']}")
+    print(f"  Total facturas procesadas: {estadisticas_totales['total_facturas_validas']}")
+    print(f"  Total guardadas en BD: {estadisticas_totales['total_facturas_guardadas']}")
     print(f"  Valor total: ${estadisticas_totales['valor_total_facturas']:,.2f}")
     print(f"\nNotas de crédito:")
     print(f"  Notas únicas aplicadas: {estadisticas_totales['total_notas_aplicadas']}")
@@ -300,19 +383,19 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Genera facturas diarias con descripción de notas aplicadas (1-9 noviembre 2025)'
+        description='Procesa facturas, aplica notas y guarda en BD'
     )
     parser.add_argument(
         '--fecha-inicio',
         type=str,
-        default='2025-11-01',
-        help='Fecha de inicio (YYYY-MM-DD). Default: 2025-11-01'
+        required=True,
+        help='Fecha de inicio (YYYY-MM-DD)'
     )
     parser.add_argument(
         '--fecha-fin',
         type=str,
-        default='2025-11-09',
-        help='Fecha de fin (YYYY-MM-DD). Default: 2025-11-09'
+        required=True,
+        help='Fecha de fin (YYYY-MM-DD)'
     )
     parser.add_argument(
         '--output-dir',
@@ -336,5 +419,5 @@ if __name__ == "__main__":
         print("Formato esperado: YYYY-MM-DD")
         sys.exit(1)
 
-    # Ejecutar generación
-    generar_facturas_con_notas(fecha_inicio, fecha_fin, args.output_dir)
+    # Ejecutar procesamiento
+    procesar_y_guardar_facturas(fecha_inicio, fecha_fin, args.output_dir)

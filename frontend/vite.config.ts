@@ -1,62 +1,38 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-// https://vite.dev/config/
-export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  const env = loadEnv(mode, process.cwd(), '')
+const BASE_PATH = process.env.VITE_BASE_PATH || '';
 
-  // Determinar si estamos en modo subpath (producción con dominio propio)
-  const useSubpath = env.VITE_USE_SUBPATH === 'true'
-  const basePath = useSubpath ? '/intranet/cipa/' : '/'
-
-  return {
-    // Base path para deployment con subpath
-    base: basePath,
-
-    plugins: [react()],
-
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
+export default defineConfig({
+  plugins: [react()],
+  base: BASE_PATH || '/',
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
       },
     },
-
-    server: {
-      port: 3000,
-      proxy: {
-        '/api': {
-          target: env.VITE_API_URL || 'http://localhost:5000',
-          changeOrigin: true,
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-label'],
         },
       },
     },
-
-    build: {
-      outDir: 'dist',
-      // Generar sourcemaps solo en desarrollo
-      sourcemap: mode === 'development',
-      // Optimizaciones para producción
-      minify: 'terser',
-      // Optimizar para ambientes con memoria limitada
-      chunkSizeWarningLimit: 1000,
-      terserOptions: {
-        compress: {
-          drop_console: mode === 'production',
-        },
-      },
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
-            utils: ['axios', '@tanstack/react-query', 'zustand'],
-          },
-        },
-        // Optimizar para reducir uso de memoria durante el build
-        maxParallelFileOps: 2,
-      },
-    },
-  }
+  },
 })

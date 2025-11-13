@@ -50,7 +50,10 @@ def verificar_base_datos():
     """Verifica que la base de datos exista"""
     print_colored("🔍 Verificando base de datos...", BLUE)
 
-    db_path = Path(__file__).parent / 'data' / 'notas_credito.db'
+    # Usar la misma ruta que el resto del sistema (raíz del proyecto)
+    import os
+    project_root = Path(__file__).parent.parent
+    db_path = Path(os.getenv('DB_PATH', str(project_root / 'data' / 'notas_credito.db')))
 
     if not db_path.exists():
         print_colored(f"⚠️  Base de datos no encontrada en: {db_path}", YELLOW)

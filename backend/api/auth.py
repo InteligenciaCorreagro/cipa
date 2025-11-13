@@ -9,6 +9,7 @@ Características:
 - Bloqueo temporal después de intentos fallidos
 """
 
+import os
 import sqlite3
 import bcrypt
 import logging
@@ -22,8 +23,19 @@ logger = logging.getLogger(__name__)
 class AuthManager:
     """Gestiona autenticación y autorización"""
 
-    def __init__(self, db_path: str = "./data/notas_credito.db"):
+    def __init__(self, db_path: str = None):
+        # Si no se proporciona db_path, usar variable de entorno o calcular ruta al proyecto raíz
+        if db_path is None:
+            # Intentar obtener desde variable de entorno
+            db_path = os.getenv('DB_PATH')
+            if db_path is None:
+                # Calcular ruta al directorio raíz del proyecto
+                # auth.py está en backend/api/, necesitamos subir 2 niveles
+                project_root = Path(__file__).parent.parent.parent
+                db_path = str(project_root / 'data' / 'notas_credito.db')
+
         self.db_path = db_path
+        logger.info(f"AuthManager usando base de datos: {db_path}")
         self._inicializar_tablas()
 
     def _inicializar_tablas(self):

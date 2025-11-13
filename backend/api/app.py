@@ -104,7 +104,10 @@ except Exception as e:
 auth_manager = AuthManager()
 archivador = ArchivadorNotas()
 
-DB_PATH = BACKEND_DIR / 'data' / 'notas_credito.db'
+# Usar la misma base de datos que main.py y GitHub Actions
+# Apunta al directorio raíz del proyecto, no al subdirectorio backend
+PROJECT_ROOT = BACKEND_DIR.parent
+DB_PATH = Path(os.getenv('DB_PATH', str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
 
 
 def get_db_connection():
@@ -725,7 +728,8 @@ def obtener_transacciones():
                 cantidad,
                 cantidad_transada,
                 estado,
-                tiene_nota_credito
+                tiene_nota_credito,
+                descripcion_nota_aplicada
             FROM facturas
             WHERE valor_transado > 0 AND es_valida = 1
             ORDER BY fecha_factura DESC
@@ -753,6 +757,143 @@ def obtener_transacciones():
     except Exception as e:
         logger.error(f"Error en obtener_transacciones: {e}", exc_info=True)
         return jsonify({"error": "Error al obtener transacciones"}), 500
+
+
+@app.route('/api/facturas/rechazadas', methods=['GET'])
+@jwt_required()
+def obtener_facturas_rechazadas():
+    """Obtener grilla de facturas rechazadas"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando facturas rechazadas")
+
+        limite = int(request.args.get('limite', 50))
+        offset = int(request.args.get('offset', 0))
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Query base
+        query = '''
+            SELECT
+                id,
+                numero_factura,
+                fecha_factura,
+                nit_cliente,
+                nombre_cliente,
+                codigo_producto,
+                nombre_producto,
+                tipo_inventario,
+                valor_total,
+                razon_rechazo,
+                fecha_registro
+            FROM facturas_rechazadas
+            WHERE 1=1
+        '''
+        params = []
+
+        if fecha_desde:
+            query += " AND fecha_factura >= ?"
+            params.append(fecha_desde)
+
+        if fecha_hasta:
+            query += " AND fecha_factura <= ?"
+            params.append(fecha_hasta)
+
+        query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        cursor.execute(query, params)
+        rechazadas = [dict(row) for row in cursor.fetchall()]
+
+        # Contar total
+        query_count = query.split('ORDER BY')[0].replace('SELECT\n                id,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                nombre_cliente,\n                codigo_producto,\n                nombre_producto,\n                tipo_inventario,\n                valor_total,\n                razon_rechazo,\n                fecha_registro', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+
+        conn.close()
+
+        return jsonify({
+            "items": rechazadas,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en obtener_facturas_rechazadas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener facturas rechazadas"}), 500
+
+
+@app.route('/api/facturas/con-notas', methods=['GET'])
+@jwt_required()
+def obtener_facturas_con_notas():
+    """Obtener grilla de facturas que tienen notas de crédito aplicadas"""
+    try:
+        identity = get_jwt_identity()
+        logger.debug(f"Usuario ID {identity} solicitando facturas con notas")
+
+        limite = int(request.args.get('limite', 50))
+        offset = int(request.args.get('offset', 0))
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Query base
+        query = '''
+            SELECT
+                id,
+                numero_factura,
+                fecha_factura,
+                nit_cliente,
+                nombre_cliente,
+                codigo_producto,
+                nombre_producto,
+                tipo_inventario,
+                valor_total,
+                cantidad,
+                descripcion_nota_aplicada,
+                fecha_proceso
+            FROM facturas
+            WHERE tiene_nota_credito = 1 AND es_valida = 1
+        '''
+        params = []
+
+        if fecha_desde:
+            query += " AND fecha_factura >= ?"
+            params.append(fecha_desde)
+
+        if fecha_hasta:
+            query += " AND fecha_factura <= ?"
+            params.append(fecha_hasta)
+
+        query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        cursor.execute(query, params)
+        facturas = [dict(row) for row in cursor.fetchall()]
+
+        # Contar total
+        query_count = query.split('ORDER BY')[0].replace('SELECT\n                id,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                nombre_cliente,\n                codigo_producto,\n                nombre_producto,\n                tipo_inventario,\n                valor_total,\n                cantidad,\n                descripcion_nota_aplicada,\n                fecha_proceso', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+
+        conn.close()
+
+        return jsonify({
+            "items": facturas,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en obtener_facturas_con_notas: {e}", exc_info=True)
+        return jsonify({"error": "Error al obtener facturas con notas"}), 500
 
 
 # =============================================================================

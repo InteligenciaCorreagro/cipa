@@ -22,29 +22,47 @@ class SiesaAPIClient:
     def obtener_facturas(self, fecha: datetime) -> List[Dict]:
         """
         Obtiene las facturas para una fecha específica
-        
+
         Args:
             fecha: Fecha para consultar las facturas
-            
+
         Returns:
             Lista de facturas en formato JSON
         """
+        # Formato YYYY-MM-DD con comillas simples (como espera SIESA)
         fecha_str = fecha.strftime('%Y-%m-%d')
-        
+
+        # SIESA espera: FECHA_INI='2025-11-10'|FECHA_FIN='2025-11-10'
         params = {
             "idCompania": "37",
             "descripcion": "Api_Consulta_Fac_Correagro",
             "parametros": f"FECHA_INI='{fecha_str}'|FECHA_FIN='{fecha_str}'"
         }
-        
+
         try:
             logger.info(f"Consultando facturas para la fecha: {fecha_str}")
+            logger.info(f"URL: {self.BASE_URL}")
+            logger.info(f"Parámetros: {params}")
+
             response = requests.get(
                 self.BASE_URL,
                 params=params,
                 headers=self.headers,
                 timeout=30
             )
+
+            # Log de la URL completa generada
+            logger.info(f"URL completa: {response.url}")
+
+            # Intentar obtener el cuerpo de la respuesta antes de raise_for_status
+            if response.status_code == 400:
+                logger.error(f"Error 400 - Respuesta del servidor:")
+                try:
+                    error_data = response.json()
+                    logger.error(f"JSON Error: {json.dumps(error_data, indent=2)}")
+                except:
+                    logger.error(f"Texto Error: {response.text[:500]}")
+
             response.raise_for_status()
             
             # Parsear respuesta JSON
