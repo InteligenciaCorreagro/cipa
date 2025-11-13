@@ -6,16 +6,16 @@ Valida el funcionamiento de los componentes principales
 import sys
 import os
 
-# Agregar src al path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Agregar backend al path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 def test_business_rules():
     """Prueba validador de reglas de negocio"""
     print("\n" + "="*60)
     print("TEST: Business Rules Validator")
     print("="*60)
-    
-    from business_rules import BusinessRulesValidator
+
+    from core.business_rules import BusinessRulesValidator
     
     validator = BusinessRulesValidator()
     
@@ -102,8 +102,8 @@ def test_notas_credito_manager():
     print("\n" + "="*60)
     print("TEST: Notas Crédito Manager")
     print("="*60)
-    
-    from notas_credito_manager import NotasCreditoManager
+
+    from core.notas_credito_manager import NotasCreditoManager
     from datetime import datetime
     import tempfile
     
@@ -189,8 +189,8 @@ def test_excel_processor():
     print("\n" + "="*60)
     print("TEST: Excel Processor")
     print("="*60)
-    
-    from excel_processor import ExcelProcessor
+
+    from core.excel_processor import ExcelProcessor
     from datetime import datetime
     
     processor = ExcelProcessor()
