@@ -141,8 +141,13 @@ def procesar_fecha(fecha, api_client, notas_manager, validator, excel_processor)
 def main():
     """Función principal para poblar datos históricos"""
     try:
+        # Detectar directorio raíz del proyecto (el padre de scripts/)
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent
+
         # Cambiar al directorio del proyecto
-        os.chdir('/home/user/cipa')
+        os.chdir(project_root)
+        logger.info(f"Directorio de trabajo: {project_root}")
 
         # Cargar variables de entorno
         load_dotenv()
