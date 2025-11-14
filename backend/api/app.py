@@ -321,6 +321,228 @@ def change_password():
         return jsonify({"error": "Error al cambiar contraseña"}), 500
 
 
+@app.route('/api/auth/register', methods=['POST'])
+@jwt_required()
+def register_user():
+    """
+    Crear nuevo usuario - Solo para administradores
+    Este es el 'backdoor' para creación de usuarios con autenticación
+    """
+    # Verificar que el usuario actual sea admin
+    claims = get_jwt()
+    rol_actual = claims.get('rol')
+
+    if rol_actual != 'admin':
+        logger.warning(f"Intento de crear usuario sin permisos de admin: {claims.get('username')}")
+        return jsonify({"error": "No tiene permisos para crear usuarios"}), 403
+
+    data = request.get_json()
+
+    # Validar datos requeridos
+    if not data or 'username' not in data or 'password' not in data:
+        return jsonify({"error": "Username y password son requeridos"}), 400
+
+    username = data['username']
+    password = data['password']
+    email = data.get('email')
+    rol = data.get('rol', 'viewer')
+
+    # Validar rol
+    if rol not in ['admin', 'editor', 'viewer']:
+        return jsonify({"error": "Rol inválido. Debe ser: admin, editor o viewer"}), 400
+
+    # Validar longitud de contraseña
+    if len(password) < 6:
+        return jsonify({"error": "La contraseña debe tener al menos 6 caracteres"}), 400
+
+    # Crear usuario
+    if auth_manager.crear_usuario(username, password, email, rol):
+        logger.info(f"Usuario creado por admin {claims.get('username')}: {username} ({rol})")
+        return jsonify({
+            "mensaje": "Usuario creado exitosamente",
+            "usuario": {
+                "username": username,
+                "email": email,
+                "rol": rol
+            }
+        }), 201
+    else:
+        return jsonify({"error": "Error al crear usuario. Puede que ya exista."}), 400
+
+
+@app.route('/api/auth/users', methods=['GET'])
+@jwt_required()
+def list_users():
+    """Listar usuarios - Solo para administradores"""
+    # Verificar que el usuario actual sea admin
+    claims = get_jwt()
+    rol_actual = claims.get('rol')
+
+    if rol_actual != 'admin':
+        return jsonify({"error": "No tiene permisos para ver usuarios"}), 403
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, username, email, rol, activo, ultimo_acceso, fecha_creacion
+            FROM usuarios
+            ORDER BY fecha_creacion DESC
+        ''')
+
+        usuarios = []
+        for row in cursor.fetchall():
+            usuarios.append({
+                'id': row[0],
+                'username': row[1],
+                'email': row[2],
+                'rol': row[3],
+                'activo': bool(row[4]),
+                'ultimo_acceso': row[5],
+                'fecha_creacion': row[6]
+            })
+
+        conn.close()
+
+        return jsonify({
+            "total": len(usuarios),
+            "usuarios": usuarios
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error al listar usuarios: {e}")
+        return jsonify({"error": "Error al obtener usuarios"}), 500
+
+
+@app.route('/api/reporte/operativo', methods=['GET'])
+@jwt_required()
+def reporte_operativo():
+    """
+    Obtener datos del reporte operativo diario
+    Equivalente a lo que se envía por correo a operativa
+    """
+    try:
+        fecha = request.args.get('fecha')
+
+        # Si no se especifica fecha, usar ayer
+        if not fecha:
+            fecha_obj = datetime.now() - timedelta(days=1)
+            fecha = fecha_obj.strftime('%Y-%m-%d')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Obtener notas de la fecha
+        cursor.execute('''
+            SELECT numero_nota, fecha_nota, nit_cliente, nombre_cliente,
+                   codigo_producto, nombre_producto, valor_total, cantidad,
+                   saldo_pendiente, cantidad_pendiente, estado
+            FROM notas_credito
+            WHERE DATE(fecha_nota) = ? OR DATE(fecha_registro) = ?
+            ORDER BY fecha_nota DESC
+        ''', (fecha, fecha))
+
+        notas = []
+        for row in cursor.fetchall():
+            notas.append({
+                'numero_nota': row[0],
+                'fecha_nota': row[1],
+                'nit_cliente': row[2],
+                'nombre_cliente': row[3],
+                'codigo_producto': row[4],
+                'nombre_producto': row[5],
+                'valor_total': row[6],
+                'cantidad': row[7],
+                'saldo_pendiente': row[8],
+                'cantidad_pendiente': row[9],
+                'estado': row[10]
+            })
+
+        # Obtener aplicaciones de la fecha
+        cursor.execute('''
+            SELECT numero_nota, numero_factura, fecha_factura, nit_cliente,
+                   codigo_producto, valor_aplicado, cantidad_aplicada, fecha_aplicacion
+            FROM aplicaciones_notas
+            WHERE DATE(fecha_aplicacion) = ?
+            ORDER BY fecha_aplicacion DESC
+        ''', (fecha,))
+
+        aplicaciones = []
+        for row in cursor.fetchall():
+            aplicaciones.append({
+                'numero_nota': row[0],
+                'numero_factura': row[1],
+                'fecha_factura': row[2],
+                'nit_cliente': row[3],
+                'codigo_producto': row[4],
+                'valor_aplicado': row[5],
+                'cantidad_aplicada': row[6],
+                'fecha_aplicacion': row[7]
+            })
+
+        # Obtener facturas rechazadas de la fecha
+        cursor.execute('''
+            SELECT numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                   codigo_producto, nombre_producto, tipo_inventario,
+                   valor_total, razon_rechazo
+            FROM facturas_rechazadas
+            WHERE DATE(fecha_factura) = ?
+            ORDER BY fecha_factura DESC
+        ''', (fecha,))
+
+        facturas_rechazadas = []
+        for row in cursor.fetchall():
+            facturas_rechazadas.append({
+                'numero_factura': row[0],
+                'fecha_factura': row[1],
+                'nit_cliente': row[2],
+                'nombre_cliente': row[3],
+                'codigo_producto': row[4],
+                'nombre_producto': row[5],
+                'tipo_inventario': row[6],
+                'valor_total': row[7],
+                'razon_rechazo': row[8]
+            })
+
+        # Resumen de notas
+        cursor.execute('''
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN estado = 'PENDIENTE' THEN 1 ELSE 0 END) as pendientes,
+                SUM(CASE WHEN estado = 'APLICADA' THEN 1 ELSE 0 END) as aplicadas,
+                SUM(CASE WHEN estado = 'PENDIENTE' THEN saldo_pendiente ELSE 0 END) as saldo_pendiente
+            FROM notas_credito
+        ''')
+
+        resumen_row = cursor.fetchone()
+        resumen_notas = {
+            'total': resumen_row[0] or 0,
+            'pendientes': resumen_row[1] or 0,
+            'aplicadas': resumen_row[2] or 0,
+            'saldo_pendiente': resumen_row[3] or 0
+        }
+
+        conn.close()
+
+        return jsonify({
+            "fecha": fecha,
+            "notas_credito": notas,
+            "aplicaciones": aplicaciones,
+            "facturas_rechazadas": facturas_rechazadas,
+            "resumen": {
+                "total_notas": len(notas),
+                "total_aplicaciones": len(aplicaciones),
+                "total_rechazadas": len(facturas_rechazadas),
+                "resumen_notas": resumen_notas
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en reporte operativo: {e}", exc_info=True)
+        return jsonify({"error": "Error al generar reporte"}), 500
+
+
 # =============================================================================
 # ENDPOINTS DE NOTAS
 # =============================================================================
@@ -542,6 +764,7 @@ def listar_facturas():
         limite = int(request.args.get('limite', 100))
         offset = int(request.args.get('offset', 0))
 
+        # Usar tabla facturas para facturas válidas
         query = "SELECT * FROM facturas WHERE 1=1"
         params = []
 
@@ -561,9 +784,13 @@ def listar_facturas():
             query += " AND fecha_factura <= ?"
             params.append(fecha_hasta)
 
+        # Filtrar por tiene_nota_credito si es_valida viene como parámetro
+        # (reutilizamos este parámetro para filtrar facturas con/sin notas)
         if es_valida is not None:
-            query += " AND es_valida = ?"
-            params.append(1 if es_valida == 'true' else 0)
+            if es_valida.lower() == 'con_nota':
+                query += " AND tiene_nota_credito = 1"
+            elif es_valida.lower() == 'sin_nota':
+                query += " AND tiene_nota_credito = 0"
 
         query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
         params.extend([limite, offset])
@@ -606,6 +833,7 @@ def obtener_factura(factura_id):
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        # Usar tabla facturas
         cursor.execute('SELECT * FROM facturas WHERE id = ?', (factura_id,))
         factura = cursor.fetchone()
 
@@ -615,6 +843,7 @@ def obtener_factura(factura_id):
 
         # Obtener notas de crédito asociadas si las hay
         numero_factura = factura['numero_factura']
+        codigo_producto = factura['codigo_producto']
         cursor.execute('''
             SELECT * FROM aplicaciones_notas
             WHERE numero_factura = ?
@@ -637,7 +866,7 @@ def obtener_factura(factura_id):
 @app.route('/api/facturas/estadisticas', methods=['GET'])
 @jwt_required()
 def estadisticas_facturas():
-    """Obtener estadísticas generales de facturas"""
+    """Obtener estadísticas generales de facturas válidas y rechazadas"""
     try:
         identity = get_jwt_identity()
         logger.info(f"Usuario ID {identity} solicitando estadísticas de facturas")
@@ -647,47 +876,50 @@ def estadisticas_facturas():
 
         stats = {}
 
-        # Total de facturas
+        # Total de facturas válidas
         cursor.execute('SELECT COUNT(*) FROM facturas')
-        stats['total_facturas'] = cursor.fetchone()[0]
-
-        # Facturas válidas
-        cursor.execute('SELECT COUNT(*) FROM facturas WHERE es_valida = 1')
         stats['facturas_validas'] = cursor.fetchone()[0]
 
-        # Facturas inválidas
-        cursor.execute('SELECT COUNT(*) FROM facturas WHERE es_valida = 0')
+        # Total de facturas rechazadas
+        cursor.execute('SELECT COUNT(*) FROM facturas_rechazadas')
         stats['facturas_invalidas'] = cursor.fetchone()[0]
 
-        # Valor total facturado
-        cursor.execute('SELECT SUM(valor_total) FROM facturas WHERE es_valida = 1')
+        # Total general
+        stats['total_facturas'] = stats['facturas_validas'] + stats['facturas_invalidas']
+
+        # Valor total facturado (solo válidas)
+        cursor.execute('SELECT SUM(valor_total) FROM facturas')
         stats['valor_total_facturado'] = cursor.fetchone()[0] or 0
 
-        # Valor total transado
-        cursor.execute('SELECT SUM(valor_transado) FROM facturas WHERE es_valida = 1')
-        stats['valor_total_transado'] = cursor.fetchone()[0] or 0
-
-        # Facturas con notas de crédito
+        # Facturas con notas de crédito aplicadas
         cursor.execute('SELECT COUNT(*) FROM facturas WHERE tiene_nota_credito = 1')
         stats['facturas_con_notas'] = cursor.fetchone()[0]
 
-        # Estadísticas por estado
-        cursor.execute('''
-            SELECT estado, COUNT(*) as cantidad, SUM(valor_total) as valor_total
-            FROM facturas
-            WHERE es_valida = 1
-            GROUP BY estado
-        ''')
+        # Valor total de notas aplicadas
+        cursor.execute('SELECT SUM(valor_nota_aplicada) FROM facturas')
+        stats['valor_total_transado'] = cursor.fetchone()[0] or 0
 
-        stats['por_estado'] = [dict(row) for row in cursor.fetchall()]
-
-        # Últimas 30 días
+        # Facturas últimos 30 días
         cursor.execute('''
             SELECT COUNT(*) FROM facturas
             WHERE fecha_factura >= date('now', '-30 days')
-            AND es_valida = 1
         ''')
         stats['facturas_ultimos_30_dias'] = cursor.fetchone()[0]
+
+        # Estadísticas por estado de facturas válidas
+        cursor.execute('''
+            SELECT estado, COUNT(*) as cantidad, SUM(valor_total) as valor_total
+            FROM facturas
+            GROUP BY estado
+        ''')
+
+        stats['por_estado'] = []
+        for row in cursor.fetchall():
+            stats['por_estado'].append({
+                'estado': row[0],
+                'cantidad': row[1],
+                'valor_total': row[2] or 0
+            })
 
         conn.close()
 
@@ -713,36 +945,27 @@ def obtener_transacciones():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Obtener facturas con transacciones (valor_transado > 0)
+        # Obtener aplicaciones de notas (transacciones reales)
         cursor.execute('''
             SELECT
                 id,
+                numero_nota,
                 numero_factura,
                 fecha_factura,
                 nit_cliente,
-                nombre_cliente,
                 codigo_producto,
-                nombre_producto,
-                valor_total,
-                valor_transado,
-                cantidad,
-                cantidad_transada,
-                estado,
-                tiene_nota_credito,
-                descripcion_nota_aplicada
-            FROM facturas
-            WHERE valor_transado > 0 AND es_valida = 1
-            ORDER BY fecha_factura DESC
+                valor_aplicado,
+                cantidad_aplicada,
+                fecha_aplicacion
+            FROM aplicaciones_notas
+            ORDER BY fecha_aplicacion DESC
             LIMIT ? OFFSET ?
         ''', (limite, offset))
 
         transacciones = [dict(row) for row in cursor.fetchall()]
 
         # Contar total
-        cursor.execute('''
-            SELECT COUNT(*) FROM facturas
-            WHERE valor_transado > 0 AND es_valida = 1
-        ''')
+        cursor.execute('SELECT COUNT(*) FROM aplicaciones_notas')
         total = cursor.fetchone()[0]
 
         conn.close()
@@ -843,23 +1066,20 @@ def obtener_facturas_con_notas():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Query base
+        # Usar aplicaciones_notas para obtener facturas con notas aplicadas
         query = '''
             SELECT
                 id,
+                numero_nota,
                 numero_factura,
                 fecha_factura,
                 nit_cliente,
-                nombre_cliente,
                 codigo_producto,
-                nombre_producto,
-                tipo_inventario,
-                valor_total,
-                cantidad,
-                descripcion_nota_aplicada,
-                fecha_proceso
-            FROM facturas
-            WHERE tiene_nota_credito = 1 AND es_valida = 1
+                valor_aplicado,
+                cantidad_aplicada,
+                fecha_aplicacion
+            FROM aplicaciones_notas
+            WHERE 1=1
         '''
         params = []
 
@@ -878,7 +1098,7 @@ def obtener_facturas_con_notas():
         facturas = [dict(row) for row in cursor.fetchall()]
 
         # Contar total
-        query_count = query.split('ORDER BY')[0].replace('SELECT\n                id,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                nombre_cliente,\n                codigo_producto,\n                nombre_producto,\n                tipo_inventario,\n                valor_total,\n                cantidad,\n                descripcion_nota_aplicada,\n                fecha_proceso', 'SELECT COUNT(*)')
+        query_count = query.split('ORDER BY')[0].replace('SELECT\n                id,\n                numero_nota,\n                numero_factura,\n                fecha_factura,\n                nit_cliente,\n                codigo_producto,\n                valor_aplicado,\n                cantidad_aplicada,\n                fecha_aplicacion', 'SELECT COUNT(*)')
         cursor.execute(query_count, params[:-2])
         total = cursor.fetchone()[0]
 

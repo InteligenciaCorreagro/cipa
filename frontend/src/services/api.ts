@@ -195,4 +195,6 @@ export const healthApi = {
   },
 }
 
+// Exportar api tanto como default como named export para compatibilidad
+export { api }
 export default api

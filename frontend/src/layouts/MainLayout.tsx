@@ -6,7 +6,9 @@ import {
   FileText,
   LogOut,
   Menu,
-  X
+  X,
+  Users,
+  FileBarChart
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -22,8 +24,10 @@ export default function MainLayout() {
   }
 
   const menuItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/notas', icon: FileText, label: 'Consulta de Notas' },
+    { path: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/notas', icon: FileText, label: 'Consulta de Notas', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/reporte-operativo', icon: FileBarChart, label: 'Reporte Operativo', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/usuarios', icon: Users, label: 'Gestión de Usuarios', roles: ['admin'] },
   ]
 
   return (
@@ -50,21 +54,23 @@ export default function MainLayout() {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
-          {menuItems.map((item) => {
-            const Icon = item.icon
-            const isActive = location.pathname === item.path
-            return (
-              <Link key={item.path} to={item.path}>
-                <Button
-                  variant={isActive ? 'default' : 'ghost'}
-                  className={`w-full justify-start ${!sidebarOpen && 'justify-center'}`}
-                >
-                  <Icon className="h-5 w-5" />
-                  {sidebarOpen && <span className="ml-3">{item.label}</span>}
-                </Button>
-              </Link>
-            )
-          })}
+          {menuItems
+            .filter((item) => !user?.rol || item.roles.includes(user.rol))
+            .map((item) => {
+              const Icon = item.icon
+              const isActive = location.pathname === item.path
+              return (
+                <Link key={item.path} to={item.path}>
+                  <Button
+                    variant={isActive ? 'default' : 'ghost'}
+                    className={`w-full justify-start ${!sidebarOpen && 'justify-center'}`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {sidebarOpen && <span className="ml-3">{item.label}</span>}
+                  </Button>
+                </Link>
+              )
+            })}
         </nav>
 
         {/* User section */}
