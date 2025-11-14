@@ -54,19 +54,23 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initialize: () => {
+    set({ isLoading: true })
     const token = localStorage.getItem('access_token')
     const userStr = localStorage.getItem('user')
 
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr) as User
-        set({ user, isAuthenticated: true })
+        set({ user, isAuthenticated: true, isLoading: false })
       } catch (error) {
         console.error('Error al parsear usuario:', error)
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
+        set({ isLoading: false })
       }
+    } else {
+      set({ isLoading: false })
     }
   },
 }))

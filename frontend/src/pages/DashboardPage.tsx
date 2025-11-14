@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
 import { FileText, DollarSign, AlertCircle, CheckCircle, RefreshCw, ServerCrash, Receipt, TrendingUp, XCircle } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { SortableTable, Column } from '@/components/ui/sortable-table'
+import type { Factura } from '@/types'
 
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981']
 
@@ -121,6 +123,69 @@ export default function DashboardPage() {
       color: 'text-blue-600',
       bgColor: 'bg-blue-100 dark:bg-blue-900/20'
     }
+  ]
+
+  const transaccionesColumns: Column<Factura>[] = [
+    {
+      key: 'numero_factura',
+      label: 'Número',
+    },
+    {
+      key: 'fecha_factura',
+      label: 'Fecha',
+      render: (item) => new Date(item.fecha_factura).toLocaleDateString('es-CO'),
+      getValue: (item) => new Date(item.fecha_factura).getTime(),
+    },
+    {
+      key: 'nombre_cliente',
+      label: 'Cliente',
+      render: (item) => (
+        <div>
+          <p className="font-medium">{item.nombre_cliente}</p>
+          <p className="text-xs text-muted-foreground">{item.nit_cliente}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'nombre_producto',
+      label: 'Producto',
+      render: (item) => (
+        <div>
+          <p className="font-medium">{item.nombre_producto}</p>
+          <p className="text-xs text-muted-foreground">{item.codigo_producto}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'valor_total',
+      label: 'Valor Total',
+      className: 'text-right',
+      render: (item) => formatCurrency(item.valor_total),
+    },
+    {
+      key: 'valor_transado',
+      label: 'Valor Transado',
+      className: 'text-right',
+      render: (item) => (
+        <span className="font-semibold text-green-600">
+          {formatCurrency(item.valor_transado)}
+        </span>
+      ),
+    },
+    {
+      key: 'estado',
+      label: 'Estado',
+      className: 'text-center',
+      render: (item) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+          item.tiene_nota_credito
+            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
+            : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
+        }`}>
+          {item.estado}
+        </span>
+      ),
+    },
   ]
 
   return (
@@ -289,62 +354,12 @@ export default function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingTransacciones ? (
-            <div className="text-muted-foreground text-center py-8">Cargando transacciones...</div>
-          ) : errorTransacciones ? (
-            <div className="text-destructive text-center py-8">Error al cargar transacciones</div>
-          ) : transacciones?.items && transacciones.items.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 font-medium">Número</th>
-                    <th className="text-left py-3 px-4 font-medium">Fecha</th>
-                    <th className="text-left py-3 px-4 font-medium">Cliente</th>
-                    <th className="text-left py-3 px-4 font-medium">Producto</th>
-                    <th className="text-right py-3 px-4 font-medium">Valor Total</th>
-                    <th className="text-right py-3 px-4 font-medium">Valor Transado</th>
-                    <th className="text-center py-3 px-4 font-medium">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transacciones.items.map((transaccion) => (
-                    <tr key={transaccion.id} className="border-b hover:bg-muted/50">
-                      <td className="py-3 px-4">{transaccion.numero_factura}</td>
-                      <td className="py-3 px-4">{new Date(transaccion.fecha_factura).toLocaleDateString('es-CO')}</td>
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium">{transaccion.nombre_cliente}</p>
-                          <p className="text-xs text-muted-foreground">{transaccion.nit_cliente}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium">{transaccion.nombre_producto}</p>
-                          <p className="text-xs text-muted-foreground">{transaccion.codigo_producto}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right">{formatCurrency(transaccion.valor_total)}</td>
-                      <td className="py-3 px-4 text-right font-semibold text-green-600">
-                        {formatCurrency(transaccion.valor_transado)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          transaccion.tiene_nota_credito
-                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400'
-                            : 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
-                        }`}>
-                          {transaccion.estado}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-muted-foreground text-center py-8">No hay transacciones registradas</div>
-          )}
+          <SortableTable
+            data={transacciones?.items || []}
+            columns={transaccionesColumns}
+            loading={loadingTransacciones}
+            emptyMessage={errorTransacciones ? 'Error al cargar transacciones' : 'No hay transacciones registradas'}
+          />
           {transacciones?.items && transacciones.items.length > 0 && (
             <div className="mt-4 text-sm text-muted-foreground text-center">
               Mostrando {transacciones.items.length} de {transacciones.total} transacciones

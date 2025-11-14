@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { SortableTable, Column } from '@/components/ui/sortable-table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/services/api'
 import { useNavigate } from 'react-router-dom'
+import { Search } from 'lucide-react'
 
 interface NotaCredito {
   numero_nota: string
@@ -79,6 +80,11 @@ export default function OperativeReportPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Filtros
+  const [filtroNotasCliente, setFiltroNotasCliente] = useState('')
+  const [filtroAplicacionesCliente, setFiltroAplicacionesCliente] = useState('')
+  const [filtroRechazadasCliente, setFiltroRechazadasCliente] = useState('')
+
   useEffect(() => {
     loadReport()
   }, [])
@@ -126,6 +132,206 @@ export default function OperativeReportPage() {
         return 'bg-gray-100 text-gray-800'
     }
   }
+
+  // Datos filtrados
+  const notasFiltradas = useMemo(() => {
+    if (!data) return []
+    return data.notas_credito.filter(nota => {
+      const searchTerm = filtroNotasCliente.toLowerCase()
+      return (
+        nota.nombre_cliente.toLowerCase().includes(searchTerm) ||
+        nota.nit_cliente.toLowerCase().includes(searchTerm) ||
+        nota.numero_nota.toLowerCase().includes(searchTerm) ||
+        nota.nombre_producto.toLowerCase().includes(searchTerm)
+      )
+    })
+  }, [data, filtroNotasCliente])
+
+  const aplicacionesFiltradas = useMemo(() => {
+    if (!data) return []
+    return data.aplicaciones.filter(app => {
+      const searchTerm = filtroAplicacionesCliente.toLowerCase()
+      return (
+        app.nit_cliente.toLowerCase().includes(searchTerm) ||
+        app.numero_nota.toLowerCase().includes(searchTerm) ||
+        app.numero_factura.toLowerCase().includes(searchTerm)
+      )
+    })
+  }, [data, filtroAplicacionesCliente])
+
+  const rechazadasFiltradas = useMemo(() => {
+    if (!data) return []
+    return data.facturas_rechazadas.filter(factura => {
+      const searchTerm = filtroRechazadasCliente.toLowerCase()
+      return (
+        factura.nombre_cliente.toLowerCase().includes(searchTerm) ||
+        factura.nit_cliente.toLowerCase().includes(searchTerm) ||
+        factura.numero_factura.toLowerCase().includes(searchTerm) ||
+        factura.nombre_producto.toLowerCase().includes(searchTerm)
+      )
+    })
+  }, [data, filtroRechazadasCliente])
+
+  // Columnas para las tablas
+  const notasColumns: Column<NotaCredito>[] = [
+    {
+      key: 'numero_nota',
+      label: 'Número',
+      render: (nota) => <span className="font-medium">{nota.numero_nota}</span>,
+    },
+    {
+      key: 'fecha_nota',
+      label: 'Fecha',
+      render: (nota) => formatDate(nota.fecha_nota),
+      getValue: (nota) => new Date(nota.fecha_nota).getTime(),
+    },
+    {
+      key: 'nombre_cliente',
+      label: 'Cliente',
+      render: (nota) => (
+        <div>
+          <div className="max-w-xs truncate" title={nota.nombre_cliente}>
+            {nota.nombre_cliente}
+          </div>
+          <div className="text-xs text-muted-foreground">{nota.nit_cliente}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'nombre_producto',
+      label: 'Producto',
+      render: (nota) => (
+        <div>
+          <div className="max-w-xs truncate" title={nota.nombre_producto}>
+            {nota.nombre_producto}
+          </div>
+          <div className="text-xs text-muted-foreground">{nota.codigo_producto}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'valor_total',
+      label: 'Valor',
+      className: 'text-right',
+      render: (nota) => formatCurrency(nota.valor_total),
+    },
+    {
+      key: 'cantidad',
+      label: 'Cantidad',
+      className: 'text-right',
+      render: (nota) => nota.cantidad.toFixed(2),
+    },
+    {
+      key: 'saldo_pendiente',
+      label: 'Saldo',
+      className: 'text-right',
+      render: (nota) => formatCurrency(nota.saldo_pendiente),
+    },
+    {
+      key: 'estado',
+      label: 'Estado',
+      render: (nota) => (
+        <span className={`px-2 py-1 rounded text-xs font-semibold ${getEstadoBadgeColor(nota.estado)}`}>
+          {nota.estado}
+        </span>
+      ),
+    },
+  ]
+
+  const aplicacionesColumns: Column<Aplicacion>[] = [
+    {
+      key: 'numero_nota',
+      label: 'Nota',
+      render: (app) => <span className="font-medium">{app.numero_nota}</span>,
+    },
+    {
+      key: 'numero_factura',
+      label: 'Factura',
+    },
+    {
+      key: 'nit_cliente',
+      label: 'Cliente',
+    },
+    {
+      key: 'codigo_producto',
+      label: 'Producto',
+    },
+    {
+      key: 'valor_aplicado',
+      label: 'Valor Aplicado',
+      className: 'text-right',
+      render: (app) => formatCurrency(app.valor_aplicado),
+    },
+    {
+      key: 'cantidad_aplicada',
+      label: 'Cantidad',
+      className: 'text-right',
+      render: (app) => app.cantidad_aplicada.toFixed(2),
+    },
+    {
+      key: 'fecha_aplicacion',
+      label: 'Fecha',
+      render: (app) => formatDateTime(app.fecha_aplicacion),
+      getValue: (app) => new Date(app.fecha_aplicacion).getTime(),
+    },
+  ]
+
+  const rechazadasColumns: Column<FacturaRechazada>[] = [
+    {
+      key: 'numero_factura',
+      label: 'Número',
+      render: (factura) => <span className="font-medium">{factura.numero_factura}</span>,
+    },
+    {
+      key: 'fecha_factura',
+      label: 'Fecha',
+      render: (factura) => formatDate(factura.fecha_factura),
+      getValue: (factura) => new Date(factura.fecha_factura).getTime(),
+    },
+    {
+      key: 'nombre_cliente',
+      label: 'Cliente',
+      render: (factura) => (
+        <div>
+          <div className="max-w-xs truncate" title={factura.nombre_cliente}>
+            {factura.nombre_cliente}
+          </div>
+          <div className="text-xs text-muted-foreground">{factura.nit_cliente}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'nombre_producto',
+      label: 'Producto',
+      render: (factura) => (
+        <div>
+          <div className="max-w-xs truncate" title={factura.nombre_producto}>
+            {factura.nombre_producto}
+          </div>
+          <div className="text-xs text-muted-foreground">{factura.codigo_producto}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'tipo_inventario',
+      label: 'Tipo Inv.',
+    },
+    {
+      key: 'valor_total',
+      label: 'Valor',
+      className: 'text-right',
+      render: (factura) => formatCurrency(factura.valor_total),
+    },
+    {
+      key: 'razon_rechazo',
+      label: 'Razón',
+      render: (factura) => (
+        <span className="text-sm text-muted-foreground">
+          {factura.razon_rechazo}
+        </span>
+      ),
+    },
+  ]
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -219,145 +425,67 @@ export default function OperativeReportPage() {
 
                 {/* Notas de Crédito */}
                 <TabsContent value="notas">
-                  <div className="overflow-x-auto">
-                    {data.notas_credito.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">
-                        No hay notas de crédito para esta fecha
-                      </p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Número</TableHead>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Producto</TableHead>
-                            <TableHead className="text-right">Valor</TableHead>
-                            <TableHead className="text-right">Cantidad</TableHead>
-                            <TableHead className="text-right">Saldo</TableHead>
-                            <TableHead>Estado</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.notas_credito.map((nota, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">{nota.numero_nota}</TableCell>
-                              <TableCell>{formatDate(nota.fecha_nota)}</TableCell>
-                              <TableCell>
-                                <div className="max-w-xs truncate" title={nota.nombre_cliente}>
-                                  {nota.nombre_cliente}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{nota.nit_cliente}</div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="max-w-xs truncate" title={nota.nombre_producto}>
-                                  {nota.nombre_producto}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{nota.codigo_producto}</div>
-                              </TableCell>
-                              <TableCell className="text-right">{formatCurrency(nota.valor_total)}</TableCell>
-                              <TableCell className="text-right">{nota.cantidad.toFixed(2)}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(nota.saldo_pendiente)}</TableCell>
-                              <TableCell>
-                                <span className={`px-2 py-1 rounded text-xs font-semibold ${getEstadoBadgeColor(nota.estado)}`}>
-                                  {nota.estado}
-                                </span>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                  <div className="space-y-4">
+                    {/* Filtro */}
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar por cliente, NIT, número de nota o producto..."
+                        value={filtroNotasCliente}
+                        onChange={(e) => setFiltroNotasCliente(e.target.value)}
+                        className="max-w-md"
+                      />
+                    </div>
+                    <SortableTable
+                      data={notasFiltradas}
+                      columns={notasColumns}
+                      loading={loading}
+                      emptyMessage="No hay notas de crédito para esta fecha"
+                    />
                   </div>
                 </TabsContent>
 
                 {/* Aplicaciones */}
                 <TabsContent value="aplicaciones">
-                  <div className="overflow-x-auto">
-                    {data.aplicaciones.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">
-                        No hay aplicaciones para esta fecha
-                      </p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Nota</TableHead>
-                            <TableHead>Factura</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Producto</TableHead>
-                            <TableHead className="text-right">Valor Aplicado</TableHead>
-                            <TableHead className="text-right">Cantidad</TableHead>
-                            <TableHead>Fecha</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.aplicaciones.map((app, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">{app.numero_nota}</TableCell>
-                              <TableCell>{app.numero_factura}</TableCell>
-                              <TableCell>{app.nit_cliente}</TableCell>
-                              <TableCell>{app.codigo_producto}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(app.valor_aplicado)}</TableCell>
-                              <TableCell className="text-right">{app.cantidad_aplicada.toFixed(2)}</TableCell>
-                              <TableCell>{formatDateTime(app.fecha_aplicacion)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                  <div className="space-y-4">
+                    {/* Filtro */}
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar por NIT, número de nota o factura..."
+                        value={filtroAplicacionesCliente}
+                        onChange={(e) => setFiltroAplicacionesCliente(e.target.value)}
+                        className="max-w-md"
+                      />
+                    </div>
+                    <SortableTable
+                      data={aplicacionesFiltradas}
+                      columns={aplicacionesColumns}
+                      loading={loading}
+                      emptyMessage="No hay aplicaciones para esta fecha"
+                    />
                   </div>
                 </TabsContent>
 
                 {/* Facturas Rechazadas */}
                 <TabsContent value="rechazadas">
-                  <div className="overflow-x-auto">
-                    {data.facturas_rechazadas.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">
-                        No hay facturas rechazadas para esta fecha
-                      </p>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Número</TableHead>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Producto</TableHead>
-                            <TableHead>Tipo Inv.</TableHead>
-                            <TableHead className="text-right">Valor</TableHead>
-                            <TableHead>Razón</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.facturas_rechazadas.map((factura, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">{factura.numero_factura}</TableCell>
-                              <TableCell>{formatDate(factura.fecha_factura)}</TableCell>
-                              <TableCell>
-                                <div className="max-w-xs truncate" title={factura.nombre_cliente}>
-                                  {factura.nombre_cliente}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{factura.nit_cliente}</div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="max-w-xs truncate" title={factura.nombre_producto}>
-                                  {factura.nombre_producto}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{factura.codigo_producto}</div>
-                              </TableCell>
-                              <TableCell>{factura.tipo_inventario}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(factura.valor_total)}</TableCell>
-                              <TableCell>
-                                <span className="text-sm text-muted-foreground">
-                                  {factura.razon_rechazo}
-                                </span>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                  <div className="space-y-4">
+                    {/* Filtro */}
+                    <div className="flex items-center gap-2">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar por cliente, NIT, número de factura o producto..."
+                        value={filtroRechazadasCliente}
+                        onChange={(e) => setFiltroRechazadasCliente(e.target.value)}
+                        className="max-w-md"
+                      />
+                    </div>
+                    <SortableTable
+                      data={rechazadasFiltradas}
+                      columns={rechazadasColumns}
+                      loading={loading}
+                      emptyMessage="No hay facturas rechazadas para esta fecha"
+                    />
                   </div>
                 </TabsContent>
               </Tabs>

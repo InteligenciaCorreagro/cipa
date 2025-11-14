@@ -5,16 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { SortableTable, Column } from '@/components/ui/sortable-table'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Search, Eye, ChevronLeft, ChevronRight, ServerCrash, RefreshCw } from 'lucide-react'
+import type { NotaCredito } from '@/types'
 
 const LIMITE = 50
 
@@ -55,6 +49,72 @@ export default function NotasPage() {
       setOffset(offset - LIMITE)
     }
   }
+
+  const notasColumns: Column<NotaCredito>[] = [
+    {
+      key: 'numero_nota',
+      label: 'Número',
+      render: (nota) => <span className="font-medium">{nota.numero_nota}</span>,
+    },
+    {
+      key: 'fecha_nota',
+      label: 'Fecha',
+      render: (nota) => formatDate(nota.fecha_nota),
+      getValue: (nota) => new Date(nota.fecha_nota).getTime(),
+    },
+    {
+      key: 'nombre_cliente',
+      label: 'Cliente',
+      render: (nota) => (
+        <div>
+          <div className="font-medium">{nota.nombre_cliente}</div>
+          <div className="text-xs text-muted-foreground">{nota.nit_cliente}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'nombre_producto',
+      label: 'Producto',
+      render: (nota) => (
+        <div>
+          <div className="font-medium">{nota.nombre_producto}</div>
+          <div className="text-xs text-muted-foreground">{nota.codigo_producto}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'valor_total',
+      label: 'Valor Total',
+      className: 'text-right',
+      render: (nota) => <span className="font-medium">{formatCurrency(Math.abs(nota.valor_total))}</span>,
+    },
+    {
+      key: 'saldo_pendiente',
+      label: 'Saldo Pendiente',
+      className: 'text-right',
+      render: (nota) => <span className="font-medium">{formatCurrency(Math.abs(nota.saldo_pendiente))}</span>,
+    },
+    {
+      key: 'estado',
+      label: 'Estado',
+      render: (nota) => getEstadoBadge(nota.estado),
+    },
+    {
+      key: 'acciones',
+      label: '',
+      sortable: false,
+      render: (nota) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate(`/notas/${nota.id}`)}
+          title="Ver detalles"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -163,57 +223,11 @@ export default function NotasPage() {
             </div>
           ) : data && data.items.length > 0 ? (
             <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Número</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead className="text-right">Valor Total</TableHead>
-                    <TableHead className="text-right">Saldo Pendiente</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.items.map((nota) => (
-                    <TableRow key={nota.id}>
-                      <TableCell className="font-medium">{nota.numero_nota}</TableCell>
-                      <TableCell>{formatDate(nota.fecha_nota)}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{nota.nombre_cliente}</div>
-                          <div className="text-xs text-muted-foreground">{nota.nit_cliente}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{nota.nombre_producto}</div>
-                          <div className="text-xs text-muted-foreground">{nota.codigo_producto}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(Math.abs(nota.valor_total))}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(Math.abs(nota.saldo_pendiente))}
-                      </TableCell>
-                      <TableCell>{getEstadoBadge(nota.estado)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => navigate(`/notas/${nota.id}`)}
-                          title="Ver detalles"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <SortableTable
+                data={data.items}
+                columns={notasColumns}
+                emptyMessage="No se encontraron notas"
+              />
 
               {/* Pagination */}
               <div className="flex items-center justify-between mt-4">
