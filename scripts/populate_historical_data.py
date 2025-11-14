@@ -105,13 +105,21 @@ def procesar_fecha(fecha, api_client, notas_manager, validator, excel_processor)
 
     # 6. Transformar facturas válidas
     aplicaciones = []
+    facturas_registradas = 0
     if facturas_validas:
         facturas_transformadas = [
             excel_processor.transformar_factura(factura)
             for factura in facturas_validas
         ]
 
-        # 7. Aplicar notas crédito
+        # 7. REGISTRAR FACTURAS VÁLIDAS EN BASE DE DATOS
+        logger.info(f"Registrando {len(facturas_transformadas)} facturas válidas en BD...")
+        for factura in facturas_transformadas:
+            if notas_manager.registrar_factura_valida(factura):
+                facturas_registradas += 1
+        logger.info(f"Facturas válidas registradas: {facturas_registradas}/{len(facturas_transformadas)}")
+
+        # 8. Aplicar notas crédito
         logger.info("Procesando aplicación de notas crédito...")
         aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
 
@@ -123,7 +131,7 @@ def procesar_fecha(fecha, api_client, notas_manager, validator, excel_processor)
             if len(aplicaciones) > 5:
                 logger.info(f"  ... y {len(aplicaciones) - 5} más")
 
-    # 8. Resumen
+    # 9. Resumen
     resumen = notas_manager.obtener_resumen_notas()
     logger.info(f"\nResumen de notas crédito:")
     logger.info(f"  Notas pendientes: {resumen.get('notas_pendientes', 0)}")
@@ -133,6 +141,7 @@ def procesar_fecha(fecha, api_client, notas_manager, validator, excel_processor)
         'fecha': fecha.strftime('%Y-%m-%d'),
         'total': len(facturas_raw),
         'validas': len(facturas_validas),
+        'facturas_registradas': facturas_registradas,
         'notas': notas_nuevas,
         'rechazadas': len(facturas_rechazadas),
         'aplicaciones': len(aplicaciones)
@@ -196,12 +205,13 @@ def main():
         logger.info("RESUMEN FINAL")
         logger.info(f"{'#'*60}\n")
 
-        logger.info(f"{'Fecha':<12} {'Total':<8} {'Válidas':<10} {'Notas':<8} {'Rechazadas':<12} {'Aplicaciones':<14}")
-        logger.info(f"{'-'*60}")
+        logger.info(f"{'Fecha':<12} {'Total':<8} {'Válidas':<10} {'Reg.BD':<10} {'Notas':<8} {'Rechaz.':<10} {'Aplic.':<10}")
+        logger.info(f"{'-'*80}")
 
         totales = {
             'total': 0,
             'validas': 0,
+            'facturas_registradas': 0,
             'notas': 0,
             'rechazadas': 0,
             'aplicaciones': 0
@@ -209,13 +219,14 @@ def main():
 
         for r in resultados:
             logger.info(f"{r['fecha']:<12} {r['total']:<8} {r['validas']:<10} "
-                       f"{r['notas']:<8} {r['rechazadas']:<12} {r['aplicaciones']:<14}")
+                       f"{r['facturas_registradas']:<10} {r['notas']:<8} {r['rechazadas']:<10} {r['aplicaciones']:<10}")
             for key in totales:
-                totales[key] += r[key]
+                if key in r:
+                    totales[key] += r[key]
 
-        logger.info(f"{'-'*60}")
+        logger.info(f"{'-'*80}")
         logger.info(f"{'TOTALES':<12} {totales['total']:<8} {totales['validas']:<10} "
-                   f"{totales['notas']:<8} {totales['rechazadas']:<12} {totales['aplicaciones']:<14}")
+                   f"{totales['facturas_registradas']:<10} {totales['notas']:<8} {totales['rechazadas']:<10} {totales['aplicaciones']:<10}")
 
         # Resumen final de notas
         resumen_final = notas_manager.obtener_resumen_notas()
@@ -227,6 +238,34 @@ def main():
         logger.info(f"  Notas aplicadas: {resumen_final.get('notas_aplicadas', 0)}")
         logger.info(f"  Total aplicaciones: {resumen_final.get('total_aplicaciones', 0)}")
         logger.info(f"  Monto total aplicado: ${resumen_final.get('monto_total_aplicado', 0):,.2f}")
+        logger.info(f"{'='*60}\n")
+
+        # Resumen de facturas en BD
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM facturas")
+        total_facturas_bd = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM facturas WHERE tiene_nota_credito = 1")
+        facturas_con_notas = cursor.fetchone()[0]
+
+        cursor.execute("SELECT SUM(valor_total) FROM facturas")
+        valor_total_bd = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM facturas_rechazadas")
+        total_rechazadas_bd = cursor.fetchone()[0]
+
+        conn.close()
+
+        logger.info(f"{'='*60}")
+        logger.info("ESTADO FINAL DE BASE DE DATOS")
+        logger.info(f"{'='*60}")
+        logger.info(f"  Facturas válidas registradas: {total_facturas_bd:,}")
+        logger.info(f"  Facturas con notas aplicadas: {facturas_con_notas:,}")
+        logger.info(f"  Valor total facturado: ${valor_total_bd:,.2f}")
+        logger.info(f"  Facturas rechazadas: {total_rechazadas_bd:,}")
         logger.info(f"{'='*60}\n")
 
         logger.info("✅ Proceso completado exitosamente")
