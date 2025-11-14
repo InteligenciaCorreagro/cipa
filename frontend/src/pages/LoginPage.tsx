@@ -9,15 +9,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const { login, isLoading, error, isAuthenticated } = useAuthStore()
+  const { login, isLoading, error, logout } = useAuthStore()
   const navigate = useNavigate()
 
-  // Redirigir al dashboard si ya está autenticado
+  // Limpiar sesión anterior al cargar login
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/', { replace: true })
+    const hasOldSession = localStorage.getItem('access_token')
+    if (hasOldSession) {
+      // Silenciosamente limpiar la sesión anterior
+      logout()
     }
-  }, [isAuthenticated, navigate])
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
