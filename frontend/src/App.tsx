@@ -36,9 +36,15 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename={BASE_PATH}>
         <Routes>
+          {/* Ruta raíz redirige a login */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+
+          {/* Login - página pública */}
           <Route path="/login" element={<LoginPage />} />
+
+          {/* Dashboard y páginas protegidas */}
           <Route
-            path="/"
+            path="/dashboard"
             element={
               <ProtectedRoute>
                 <MainLayout />
@@ -51,7 +57,9 @@ function App() {
             <Route path="usuarios" element={<UserManagementPage />} />
             <Route path="reporte-operativo" element={<OperativeReportPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+
+          {/* Cualquier otra ruta redirige a login */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

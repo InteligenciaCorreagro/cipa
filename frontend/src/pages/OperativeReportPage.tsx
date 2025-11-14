@@ -337,7 +337,7 @@ export default function OperativeReportPage() {
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Reporte Operativo Diario</h1>
-        <Button variant="outline" onClick={() => navigate('/')}>
+        <Button variant="outline" onClick={() => navigate('/dashboard')}>
           Volver al Dashboard
         </Button>
       </div>

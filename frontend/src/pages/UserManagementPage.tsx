@@ -39,7 +39,7 @@ export default function UserManagementPage() {
   // Verificar que el usuario sea admin
   useEffect(() => {
     if (user?.rol !== 'admin') {
-      navigate('/')
+      navigate('/dashboard')
     }
   }, [user, navigate])
 

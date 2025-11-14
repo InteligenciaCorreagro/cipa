@@ -32,7 +32,7 @@ export default function NotaDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <div className="text-muted-foreground">Nota no encontrada</div>
-        <Button onClick={() => navigate('/notas')}>
+        <Button onClick={() => navigate('/dashboard/notas')}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Volver al listado
         </Button>
@@ -63,7 +63,7 @@ export default function NotaDetailPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate('/notas')}
+            onClick={() => navigate('/dashboard/notas')}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>

@@ -107,7 +107,7 @@ export default function NotasPage() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => navigate(`/notas/${nota.id}`)}
+          onClick={() => navigate(`/dashboard/notas/${nota.id}`)}
           title="Ver detalles"
         >
           <Eye className="h-4 w-4" />

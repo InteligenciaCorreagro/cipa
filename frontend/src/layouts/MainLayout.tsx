@@ -24,10 +24,10 @@ export default function MainLayout() {
   }
 
   const menuItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'editor', 'viewer'] },
-    { path: '/notas', icon: FileText, label: 'Consulta de Notas', roles: ['admin', 'editor', 'viewer'] },
-    { path: '/reporte-operativo', icon: FileBarChart, label: 'Reporte Operativo', roles: ['admin', 'editor', 'viewer'] },
-    { path: '/usuarios', icon: Users, label: 'Gestión de Usuarios', roles: ['admin'] },
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/dashboard/notas', icon: FileText, label: 'Consulta de Notas', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/dashboard/reporte-operativo', icon: FileBarChart, label: 'Reporte Operativo', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/dashboard/usuarios', icon: Users, label: 'Gestión de Usuarios', roles: ['admin'] },
   ]
 
   return (

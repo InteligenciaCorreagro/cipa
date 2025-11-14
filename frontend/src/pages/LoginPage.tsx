@@ -25,7 +25,7 @@ export default function LoginPage() {
     e.preventDefault()
     try {
       await login({ username, password })
-      navigate('/')
+      navigate('/dashboard')
     } catch (error) {
       console.error('Error al iniciar sesión:', error)
     }
