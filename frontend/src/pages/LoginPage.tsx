@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
@@ -9,17 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const { login, isLoading, error, logout } = useAuthStore()
+  const { login, isLoading, error } = useAuthStore()
   const navigate = useNavigate()
-
-  // Limpiar sesión anterior al cargar login
-  useEffect(() => {
-    const hasOldSession = localStorage.getItem('access_token')
-    if (hasOldSession) {
-      // Silenciosamente limpiar la sesión anterior
-      logout()
-    }
-  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
