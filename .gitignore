@@ -24,6 +24,9 @@ output/
 data/*.backup
 data/*.db.backup
 
+# Ignorar base de datos duplicada en backend/data (usar solo data/)
+backend/data/*.db
+
 # Backups directory (se genera en workflows)
 backups/
 
