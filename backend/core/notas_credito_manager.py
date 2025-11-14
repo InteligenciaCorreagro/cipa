@@ -75,7 +75,36 @@ class NotasCreditoManager:
             )
         ''')
         
-        # NUEVA: Tabla de facturas rechazadas (para auditoría y detección de nuevos tipos)
+        # Tabla de facturas válidas (las que pasan las reglas de negocio)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS facturas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero_factura TEXT NOT NULL,
+                fecha_factura DATE NOT NULL,
+                nit_cliente TEXT NOT NULL,
+                nombre_cliente TEXT NOT NULL,
+                codigo_producto TEXT NOT NULL,
+                nombre_producto TEXT NOT NULL,
+                tipo_inventario TEXT,
+                valor_total REAL NOT NULL,
+                cantidad REAL NOT NULL,
+                valor_unitario REAL,
+                estado TEXT DEFAULT 'PROCESADA',
+                tiene_nota_credito INTEGER DEFAULT 0,
+                valor_nota_aplicada REAL DEFAULT 0,
+                cantidad_nota_aplicada REAL DEFAULT 0,
+                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(numero_factura, codigo_producto)
+            )
+        ''')
+
+        # Índices para mejorar rendimiento en tabla facturas
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_notas ON facturas(tiene_nota_credito)')
+
+        # Tabla de facturas rechazadas (para auditoría y detección de nuevos tipos)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS facturas_rechazadas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -516,7 +545,115 @@ class NotasCreditoManager:
         except Exception as e:
             logger.error(f"Error al registrar factura rechazada: {e}")
             return False
-    
+
+    def registrar_factura_valida(self, factura: Dict) -> bool:
+        """
+        Registra una factura válida en la base de datos
+
+        Args:
+            factura: Datos de la factura transformada (ya procesada por ExcelProcessor)
+
+        Returns:
+            True si se registró correctamente
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Extraer datos de la factura transformada
+            numero_factura = str(factura.get('Nro factura', '')).strip()
+
+            # Parsear fecha (puede venir como string o datetime)
+            fecha_factura = factura.get('Fecha factura')
+            if isinstance(fecha_factura, str):
+                try:
+                    # Intentar varios formatos de fecha
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%dT%H:%M:%S']:
+                        try:
+                            fecha_factura = datetime.strptime(fecha_factura, fmt).date()
+                            break
+                        except:
+                            continue
+                except:
+                    fecha_factura = datetime.now().date()
+            elif hasattr(fecha_factura, 'date'):
+                fecha_factura = fecha_factura.date()
+            else:
+                fecha_factura = datetime.now().date()
+
+            nit_cliente = str(factura.get('NIT Cliente', '')).strip()
+            nombre_cliente = str(factura.get('Razón social', '')).strip()
+            codigo_producto = str(factura.get('Código producto', '')).strip()
+            nombre_producto = str(factura.get('Nombre producto', '')).strip()
+            tipo_inventario = str(factura.get('Tipo inventario', '')).strip()
+
+            valor_total = float(factura.get('Vr subtotal', 0.0) or 0.0)
+            cantidad = float(factura.get('Cantidad', 0.0) or 0.0)
+            valor_unitario = float(factura.get('Vr unitario', 0.0) or 0.0)
+
+            # Insertar o actualizar factura válida
+            cursor.execute('''
+                INSERT INTO facturas
+                (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                 codigo_producto, nombre_producto, tipo_inventario,
+                 valor_total, cantidad, valor_unitario, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
+                ON CONFLICT(numero_factura, codigo_producto) DO UPDATE SET
+                    fecha_factura = excluded.fecha_factura,
+                    valor_total = excluded.valor_total,
+                    cantidad = excluded.cantidad,
+                    valor_unitario = excluded.valor_unitario
+            ''', (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                  codigo_producto, nombre_producto, tipo_inventario,
+                  valor_total, cantidad, valor_unitario))
+
+            conn.commit()
+            conn.close()
+
+            logger.debug(f"Factura válida registrada: {numero_factura}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error al registrar factura válida: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def actualizar_factura_con_nota(self, numero_factura: str, codigo_producto: str,
+                                    valor_aplicado: float, cantidad_aplicada: float) -> bool:
+        """
+        Actualiza una factura marcándola como que tiene nota de crédito aplicada
+
+        Args:
+            numero_factura: Número de factura
+            codigo_producto: Código del producto
+            valor_aplicado: Valor de la nota aplicada
+            cantidad_aplicada: Cantidad de la nota aplicada
+
+        Returns:
+            True si se actualizó correctamente
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                UPDATE facturas
+                SET tiene_nota_credito = 1,
+                    valor_nota_aplicada = valor_nota_aplicada + ?,
+                    cantidad_nota_aplicada = cantidad_nota_aplicada + ?
+                WHERE numero_factura = ? AND codigo_producto = ?
+            ''', (valor_aplicado, cantidad_aplicada, numero_factura, codigo_producto))
+
+            conn.commit()
+            conn.close()
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error al actualizar factura con nota: {e}")
+            return False
+
     def registrar_tipo_inventario(self, codigo_tipo: str, descripcion: str = None, es_excluido: bool = False) -> bool:
         """
         Registra o actualiza un tipo de inventario detectado

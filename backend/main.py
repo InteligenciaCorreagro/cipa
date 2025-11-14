@@ -157,9 +157,19 @@ def main():
         logger.info(f"\n{'='*60}")
         logger.info(f"Facturas transformadas: {len(facturas_transformadas)}")
         logger.info(f"{'='*60}")
-        
+
         # ============================================================
-        # 6. APLICAR NOTAS CRÉDITO PENDIENTES A FACTURAS
+        # 6. REGISTRAR FACTURAS VÁLIDAS EN BASE DE DATOS
+        # ============================================================
+        logger.info("\nRegistrando facturas válidas en base de datos...")
+        facturas_registradas = 0
+        for factura in facturas_transformadas:
+            if notas_manager.registrar_factura_valida(factura):
+                facturas_registradas += 1
+        logger.info(f"Facturas válidas registradas: {facturas_registradas}/{len(facturas_transformadas)}")
+
+        # ============================================================
+        # 7. APLICAR NOTAS CRÉDITO PENDIENTES A FACTURAS
         # ============================================================
         logger.info("\nProcesando aplicación de notas crédito pendientes...")
         aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
@@ -181,7 +191,7 @@ def main():
             logger.info("No se realizaron aplicaciones de notas crédito en este lote")
         
         # ============================================================
-        # 7. OBTENER RESUMEN DE NOTAS CRÉDITO
+        # 8. OBTENER RESUMEN DE NOTAS CRÉDITO
         # ============================================================
         resumen = notas_manager.obtener_resumen_notas()
         logger.info(f"\n{'='*60}")
@@ -194,7 +204,7 @@ def main():
         logger.info(f"{'='*60}\n")
         
         # ============================================================
-        # 8. GENERAR EXCEL CON FACTURAS PROCESADAS
+        # 9. GENERAR EXCEL CON FACTURAS PROCESADAS
         # ============================================================
         output_filename = f"facturas_{fecha_reporte.strftime('%Y%m%d')}.xlsx"
         output_path = os.path.join('./output', output_filename)
@@ -205,7 +215,7 @@ def main():
         excel_processor.generar_excel(facturas_transformadas, output_path)
         
         # ============================================================
-        # 9. GENERAR REPORTE DE FACTURAS RECHAZADAS
+        # 10. GENERAR REPORTE DE FACTURAS RECHAZADAS
         # ============================================================
         if facturas_rechazadas:
             reporte_rechazadas_path = os.path.join(
