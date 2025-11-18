@@ -1133,6 +1133,132 @@ def estadisticas_archivo():
 
 
 # =============================================================================
+# ENDPOINTS DE ADMIN - PROCESAMIENTO DE RANGO DE FECHAS
+# =============================================================================
+
+@app.route('/api/admin/procesar-rango', methods=['POST'])
+@jwt_required()
+def procesar_rango():
+    """
+    Procesar un rango de fechas y generar Excel consolidado
+    Requiere rol de admin
+
+    Body:
+    {
+        "fecha_desde": "2025-01-01",
+        "fecha_hasta": "2025-01-31"
+    }
+    """
+    try:
+        # Obtener usuario actual y verificar que sea admin
+        current_user = get_jwt_identity()
+        user_data = auth_manager.get_user(current_user)
+
+        if not user_data or user_data.get('role') != 'admin':
+            return jsonify({"error": "No autorizado. Se requiere rol de administrador"}), 403
+
+        # Obtener datos del request
+        data = request.get_json()
+        fecha_desde_str = data.get('fecha_desde')
+        fecha_hasta_str = data.get('fecha_hasta')
+
+        if not fecha_desde_str or not fecha_hasta_str:
+            return jsonify({"error": "Se requieren fecha_desde y fecha_hasta"}), 400
+
+        # Parsear fechas
+        try:
+            fecha_desde = datetime.strptime(fecha_desde_str, '%Y-%m-%d')
+            fecha_hasta = datetime.strptime(fecha_hasta_str, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+
+        # Validar rango
+        if fecha_desde > fecha_hasta:
+            return jsonify({"error": "fecha_desde debe ser anterior a fecha_hasta"}), 400
+
+        # Validar que el rango no sea muy grande (máximo 90 días)
+        dias_diff = (fecha_hasta - fecha_desde).days
+        if dias_diff > 90:
+            return jsonify({"error": "El rango máximo permitido es de 90 días"}), 400
+
+        # Importar funciones de procesamiento
+        try:
+            import sys
+            sys.path.insert(0, str(BACKEND_DIR))
+            from main import procesar_rango_fechas
+        except ImportError as e:
+            logger.error(f"Error importando funciones de procesamiento: {e}")
+            return jsonify({"error": "Error en configuración del servidor"}), 500
+
+        # Preparar configuración
+        config = {
+            'CONNI_KEY': os.getenv('CONNI_KEY'),
+            'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
+            'SMTP_SERVER': os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
+            'SMTP_PORT': int(os.getenv('SMTP_PORT', '587')),
+            'EMAIL_USERNAME': os.getenv('EMAIL_USERNAME'),
+            'EMAIL_PASSWORD': os.getenv('EMAIL_PASSWORD'),
+            'DESTINATARIOS': os.getenv('DESTINATARIOS', '').split(',') if os.getenv('DESTINATARIOS') else [],
+            'TEMPLATE_PATH': os.getenv('TEMPLATE_PATH', str(BACKEND_DIR / 'templates' / 'plantilla.xlsx')),
+            'DB_PATH': str(DB_PATH)
+        }
+
+        # Validar configuración
+        if not config['CONNI_KEY'] or not config['CONNI_TOKEN']:
+            return jsonify({"error": "Configuración del servidor incompleta"}), 500
+
+        # Procesar rango de fechas
+        logger.info(f"Iniciando procesamiento de rango: {fecha_desde_str} a {fecha_hasta_str} por usuario {current_user}")
+        resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
+
+        return jsonify(resultado), 200
+
+    except Exception as e:
+        logger.error(f"Error en procesar_rango: {e}", exc_info=True)
+        return jsonify({"error": "Error al procesar rango de fechas"}), 500
+
+
+@app.route('/api/admin/descargar-archivo/<filename>', methods=['GET'])
+@jwt_required()
+def descargar_archivo(filename):
+    """
+    Descargar archivo generado por el procesamiento
+    Requiere rol de admin
+    """
+    try:
+        # Obtener usuario actual y verificar que sea admin
+        current_user = get_jwt_identity()
+        user_data = auth_manager.get_user(current_user)
+
+        if not user_data or user_data.get('role') != 'admin':
+            return jsonify({"error": "No autorizado"}), 403
+
+        # Validar filename para evitar path traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({"error": "Nombre de archivo inválido"}), 400
+
+        # Buscar archivo en directorio output
+        output_dir = BACKEND_DIR / 'output'
+        file_path = output_dir / filename
+
+        if not file_path.exists():
+            return jsonify({"error": "Archivo no encontrado"}), 404
+
+        # Enviar archivo
+        from flask import send_file
+        return send_file(
+            str(file_path),
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+    except Exception as e:
+        logger.error(f"Error en descargar_archivo: {e}", exc_info=True)
+        return jsonify({"error": "Error al descargar archivo"}), 500
+
+
+# =============================================================================
 # HEALTH CHECK
 # =============================================================================
 

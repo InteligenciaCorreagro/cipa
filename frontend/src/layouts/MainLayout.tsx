@@ -8,7 +8,8 @@ import {
   Menu,
   X,
   Users,
-  FileBarChart
+  FileBarChart,
+  Calendar
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -27,6 +28,7 @@ export default function MainLayout() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'editor', 'viewer'] },
     { path: '/notas', icon: FileText, label: 'Consulta de Notas', roles: ['admin', 'editor', 'viewer'] },
     { path: '/reporte-operativo', icon: FileBarChart, label: 'Reporte Operativo', roles: ['admin', 'editor', 'viewer'] },
+    { path: '/admin/procesar-rango', icon: Calendar, label: 'Procesar Rango de Fechas', roles: ['admin'] },
     { path: '/usuarios', icon: Users, label: 'Gestión de Usuarios', roles: ['admin'] },
   ]
 
