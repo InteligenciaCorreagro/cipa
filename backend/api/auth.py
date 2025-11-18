@@ -423,3 +423,44 @@ class AuthManager:
             return False
         finally:
             conn.close()
+
+    def get_user(self, username: str) -> Optional[Dict]:
+        """
+        Obtiene los datos de un usuario por su username
+
+        Args:
+            username: Nombre de usuario
+
+        Returns:
+            Diccionario con datos del usuario o None si no existe
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute('''
+                SELECT id, username, email, rol, activo
+                FROM usuarios
+                WHERE username = ?
+            ''', (username,))
+
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            user_id, username_db, email, rol, activo = row
+
+            return {
+                'id': user_id,
+                'username': username_db,
+                'email': email,
+                'role': rol,  # Usar 'role' en lugar de 'rol' para consistencia con JWT
+                'activo': bool(activo)
+            }
+
+        except Exception as e:
+            logger.error(f"Error al obtener usuario: {e}")
+            return None
+        finally:
+            conn.close()
