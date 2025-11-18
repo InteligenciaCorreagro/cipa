@@ -1151,11 +1151,15 @@ def procesar_rango():
     """
     try:
         # Obtener usuario actual y verificar que sea admin
-        current_user = get_jwt_identity()
-        user_data = auth_manager.get_user(current_user)
+        claims = get_jwt()
+        user_rol = claims.get('rol', '')
+        username = claims.get('username', '')
 
-        if not user_data or user_data.get('role') != 'admin':
+        if user_rol != 'admin':
+            logger.warning(f"Intento de acceso no autorizado a procesar-rango por {username} (rol: {user_rol})")
             return jsonify({"error": "No autorizado. Se requiere rol de administrador"}), 403
+
+        logger.info(f"Acceso autorizado a procesar-rango por {username}")
 
         # Obtener datos del request
         data = request.get_json()
@@ -1208,7 +1212,7 @@ def procesar_rango():
             return jsonify({"error": "Configuración del servidor incompleta"}), 500
 
         # Procesar rango de fechas
-        logger.info(f"Iniciando procesamiento de rango: {fecha_desde_str} a {fecha_hasta_str} por usuario {current_user}")
+        logger.info(f"Iniciando procesamiento de rango: {fecha_desde_str} a {fecha_hasta_str} por usuario {username}")
         resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
 
         return jsonify(resultado), 200
@@ -1227,10 +1231,10 @@ def descargar_archivo(filename):
     """
     try:
         # Obtener usuario actual y verificar que sea admin
-        current_user = get_jwt_identity()
-        user_data = auth_manager.get_user(current_user)
+        claims = get_jwt()
+        user_rol = claims.get('rol', '')
 
-        if not user_data or user_data.get('role') != 'admin':
+        if user_rol != 'admin':
             return jsonify({"error": "No autorizado"}), 403
 
         # Validar filename para evitar path traversal
