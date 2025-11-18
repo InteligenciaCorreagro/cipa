@@ -1190,9 +1190,10 @@ def procesar_rango():
             import sys
             sys.path.insert(0, str(BACKEND_DIR))
             from main import procesar_rango_fechas
+            logger.info("Funciones de procesamiento importadas correctamente")
         except ImportError as e:
-            logger.error(f"Error importando funciones de procesamiento: {e}")
-            return jsonify({"error": "Error en configuración del servidor"}), 500
+            logger.error(f"Error importando funciones de procesamiento: {e}", exc_info=True)
+            return jsonify({"error": f"Error en configuración del servidor: {str(e)}"}), 500
 
         # Preparar configuración
         config = {
@@ -1219,7 +1220,10 @@ def procesar_rango():
 
     except Exception as e:
         logger.error(f"Error en procesar_rango: {e}", exc_info=True)
-        return jsonify({"error": "Error al procesar rango de fechas"}), 500
+        return jsonify({
+            "error": "Error al procesar rango de fechas",
+            "detalle": str(e)
+        }), 500
 
 
 @app.route('/api/admin/descargar-archivo/<filename>', methods=['GET'])
