@@ -182,32 +182,70 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
         logger.info(f"Procesando rango: {fecha_desde.strftime('%Y-%m-%d')} a {fecha_hasta.strftime('%Y-%m-%d')}")
         logger.info(f"={'='*60}")
 
-        todas_facturas = []
+        todas_facturas_transformadas = []
         total_notas = 0
         total_rechazadas = 0
         total_aplicaciones = 0
+        total_facturas_procesadas = 0
+
+        # Inicializar managers y processors
+        notas_manager = NotasCreditoManager(config.get('DB_PATH', './data/notas_credito.db'))
+        excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
+        api_client = SiesaAPIClient(config['CONNI_KEY'], config['CONNI_TOKEN'])
+        validator = BusinessRulesValidator()
 
         # Procesar cada día en el rango
         fecha_actual = fecha_desde
         while fecha_actual <= fecha_hasta:
-            resultado = procesar_fecha(fecha_actual, config, enviar_email=False)
+            logger.info(f"Procesando día: {fecha_actual.strftime('%Y-%m-%d')}")
 
-            if resultado['exito'] and resultado['facturas_procesadas'] > 0:
-                # Leer el archivo Excel generado y agregar facturas
-                excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
-                # Aquí podríamos leer el Excel generado o simplemente acumular las facturas
-                total_notas += resultado.get('notas_credito', 0)
-                total_rechazadas += resultado.get('facturas_rechazadas', 0)
-                total_aplicaciones += resultado.get('aplicaciones', 0)
+            # Obtener facturas de la API para esta fecha
+            facturas_raw = api_client.obtener_facturas(fecha_actual)
+
+            if facturas_raw:
+                # Filtrar facturas
+                facturas_validas, notas_credito, facturas_rechazadas = validator.filtrar_facturas(facturas_raw)
+
+                # Acumular estadísticas
+                total_notas += len(notas_credito)
+                total_rechazadas += len(facturas_rechazadas)
+
+                # Registrar notas crédito
+                for nota in notas_credito:
+                    notas_manager.registrar_nota_credito(nota)
+
+                # Transformar facturas válidas
+                if facturas_validas:
+                    facturas_transformadas = [
+                        excel_processor.transformar_factura(factura)
+                        for factura in facturas_validas
+                    ]
+
+                    # Registrar y aplicar notas
+                    for factura in facturas_transformadas:
+                        notas_manager.registrar_factura_valida(factura)
+
+                    aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
+                    total_aplicaciones += len(aplicaciones)
+
+                    # Acumular facturas
+                    todas_facturas_transformadas.extend(facturas_transformadas)
+                    total_facturas_procesadas += len(facturas_transformadas)
+
+                    logger.info(f"  - Facturas procesadas: {len(facturas_transformadas)}")
 
             fecha_actual += timedelta(days=1)
 
         # Generar Excel consolidado
         output_filename = f"facturas_rango_{fecha_desde.strftime('%Y%m%d')}_{fecha_hasta.strftime('%Y%m%d')}.xlsx"
         output_path = os.path.join('./output', output_filename)
+        os.makedirs('./output', exist_ok=True)
 
-        # Aquí deberíamos consolidar todos los Excels o procesar todas las facturas juntas
-        # Por ahora retornamos la información del procesamiento
+        if todas_facturas_transformadas:
+            excel_processor.generar_excel(todas_facturas_transformadas, output_path)
+            logger.info(f"Excel consolidado generado: {output_path}")
+        else:
+            logger.warning("No se generaron facturas, no se crea Excel")
 
         return {
             'exito': True,
@@ -215,10 +253,11 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
             'fecha_desde': fecha_desde.strftime('%Y-%m-%d'),
             'fecha_hasta': fecha_hasta.strftime('%Y-%m-%d'),
             'total_dias': (fecha_hasta - fecha_desde).days + 1,
+            'total_facturas_procesadas': total_facturas_procesadas,
             'total_notas_credito': total_notas,
             'total_facturas_rechazadas': total_rechazadas,
             'total_aplicaciones': total_aplicaciones,
-            'archivo_generado': output_path
+            'archivo_generado': output_filename  # Solo el nombre del archivo
         }
 
     except Exception as e:
