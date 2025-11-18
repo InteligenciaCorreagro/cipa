@@ -258,15 +258,20 @@ class ExcelProcessor:
         - "BT30" -> 30
         - "KLS" -> 1
         - "UND" -> 1
+        - "800G" -> 0.8 (gramos a kilogramos)
         """
         if not um_base:
             return 1.0
-        
+
         # Buscar número en la cadena
         match = re.search(r'(\d+)', str(um_base))
         if match:
-            return float(match.group(1))
-        
+            numero = float(match.group(1))
+            # Si termina en "G" (gramos), convertir a kilogramos dividiendo entre 1000
+            if um_base.upper().endswith('G'):
+                return numero / 1000.0
+            return numero
+
         # Si no tiene número, multiplicar por 1
         return 1.0
     

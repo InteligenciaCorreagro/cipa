@@ -248,7 +248,10 @@ def test_excel_processor():
     assert processor._extraer_multiplicador_um_base('BT40') == 40.0
     assert processor._extraer_multiplicador_um_base('BT30') == 30.0
     assert processor._extraer_multiplicador_um_base('KLS') == 1.0
-    print("   ✓ Multiplicadores extraídos correctamente")
+    assert processor._extraer_multiplicador_um_base('800G') == 0.8
+    assert processor._extraer_multiplicador_um_base('1000G') == 1.0
+    assert processor._extraer_multiplicador_um_base('500g') == 0.5
+    print("   ✓ Multiplicadores extraídos correctamente (incluyendo conversión de gramos)")
     
     print("\n✅ TODOS LOS TESTS DE EXCEL PROCESSOR PASARON\n")
     return True
