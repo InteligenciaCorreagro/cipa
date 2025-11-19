@@ -114,8 +114,9 @@ def procesar_fecha(fecha, api_client, notas_manager, validator, excel_processor)
 
         # 7. REGISTRAR FACTURAS VÁLIDAS EN BASE DE DATOS
         logger.info(f"Registrando {len(facturas_transformadas)} facturas válidas en BD...")
+        fecha_proceso_str = fecha.date() if hasattr(fecha, 'date') else fecha
         for factura in facturas_transformadas:
-            if notas_manager.registrar_factura_valida(factura):
+            if notas_manager.registrar_factura_valida(factura, fecha_proceso=fecha_proceso_str):
                 facturas_registradas += 1
         logger.info(f"Facturas válidas registradas: {facturas_registradas}/{len(facturas_transformadas)}")
 
