@@ -1,0 +1,189 @@
+name: Poblar Base de Datos con Datos Históricos
+
+on:
+  workflow_dispatch:  # Permite ejecución manual desde GitHub
+    inputs:
+      fecha_inicio:
+        description: 'Fecha de inicio (YYYY-MM-DD)'
+        required: true
+        default: '2025-11-01'
+      fecha_fin:
+        description: 'Fecha de fin (YYYY-MM-DD)'
+        required: true
+        default: '2025-11-18'
+      borrar_bd_existente:
+        description: 'Borrar base de datos existente (yes/no)'
+        required: true
+        default: 'yes'
+
+jobs:
+  poblar-datos-historicos:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📥 Descargar código del repositorio
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: 🔧 Configurar Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: 🐍 Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 🔧 Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: 📁 Crear estructura de directorios
+        run: |
+          mkdir -p data output templates
+          echo "✅ Directorios creados"
+
+      - name: 💾 Hacer backup de la base de datos actual (si existe)
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+            cp data/notas_credito.db data/notas_credito.db.backup_${TIMESTAMP}
+            echo "✅ Backup creado: data/notas_credito.db.backup_${TIMESTAMP}"
+
+            echo "📊 Estadísticas de la BD actual:"
+            sqlite3 data/notas_credito.db "SELECT 'Facturas válidas: ' || COUNT(*) FROM facturas;" || echo "Sin facturas"
+            sqlite3 data/notas_credito.db "SELECT 'Notas pendientes: ' || COUNT(*) FROM notas_credito WHERE estado='PENDIENTE';" || echo "Sin notas"
+          else
+            echo "ℹ️  No existe base de datos actual"
+          fi
+
+      - name: 🗑️ Borrar base de datos existente
+        if: ${{ github.event.inputs.borrar_bd_existente == 'yes' }}
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            rm data/notas_credito.db
+            echo "✅ Base de datos borrada"
+          fi
+
+      - name: 🚀 Poblar base de datos con datos históricos
+        env:
+          CONNI_KEY: ${{ secrets.CONNI_KEY }}
+          CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
+          DB_PATH: ./data/notas_credito.db
+          TEMPLATE_PATH: ./templates/plantilla.xlsx
+        run: |
+          echo "=================================================="
+          echo "🔄 POBLACIÓN DE DATOS HISTÓRICOS"
+          echo "=================================================="
+          echo "📅 Período: ${{ github.event.inputs.fecha_inicio }} a ${{ github.event.inputs.fecha_fin }}"
+          echo "🗄️  Base de datos: ./data/notas_credito.db"
+          echo ""
+
+          # Usar el script de procesamiento con parámetros
+          python backend/scripts/procesar_y_guardar_facturas.py \
+            --fecha-inicio ${{ github.event.inputs.fecha_inicio }} \
+            --fecha-fin ${{ github.event.inputs.fecha_fin }}
+
+          echo ""
+          echo "=================================================="
+          echo "✅ POBLACIÓN COMPLETADA"
+          echo "=================================================="
+
+      - name: 📈 Mostrar estadísticas finales
+        if: always()
+        run: |
+          echo ""
+          echo "=================================================="
+          echo "📊 ESTADÍSTICAS FINALES"
+          echo "=================================================="
+
+          if [ -f data/notas_credito.db ]; then
+            echo ""
+            echo "💾 Facturas:"
+            sqlite3 data/notas_credito.db "SELECT '  Total facturas válidas: ' || COUNT(*) FROM facturas;" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Valor total: $' || COALESCE(SUM(valor_total), 0) FROM facturas;" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Facturas con notas aplicadas: ' || COUNT(*) FROM facturas WHERE tiene_nota_credito = 1;" || echo "Error"
+
+            echo ""
+            echo "💳 Notas de crédito:"
+            sqlite3 data/notas_credito.db "SELECT '  Notas pendientes: ' || COUNT(*) || ' (Saldo: $' || COALESCE(SUM(saldo_pendiente), 0) || ')' FROM notas_credito WHERE estado='PENDIENTE';" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Notas aplicadas: ' || COUNT(*) FROM notas_credito WHERE estado='APLICADA';" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Total aplicaciones: ' || COUNT(*) FROM aplicaciones_notas;" || echo "Error"
+
+            echo ""
+            echo "❌ Facturas rechazadas:"
+            sqlite3 data/notas_credito.db "SELECT '  Total rechazadas: ' || COUNT(*) FROM facturas_rechazadas;" || echo "Error"
+
+            echo ""
+            echo "📅 Rango de fechas en BD:"
+            sqlite3 data/notas_credito.db "SELECT '  Primera factura: ' || MIN(fecha_proceso) FROM facturas;" || echo "Error"
+            sqlite3 data/notas_credito.db "SELECT '  Última factura: ' || MAX(fecha_proceso) FROM facturas;" || echo "Error"
+          fi
+
+          echo ""
+          echo "=================================================="
+
+      - name: 💾 Guardar base de datos en el repositorio
+        if: always()
+        run: |
+          echo "=================================================="
+          echo "💾 GUARDANDO BASE DE DATOS EN EL REPOSITORIO"
+          echo "=================================================="
+
+          if [ -f data/notas_credito.db ]; then
+            git add data/notas_credito.db
+
+            if git diff --staged --quiet; then
+              echo "ℹ️  No hay cambios en la base de datos"
+            else
+              FECHA=$(date '+%Y-%m-%d %H:%M:%S')
+              FACTURAS=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM facturas;" 2>/dev/null || echo "0")
+              NOTAS_PENDIENTES=$(sqlite3 data/notas_credito.db "SELECT COUNT(*) FROM notas_credito WHERE estado='PENDIENTE';" 2>/dev/null || echo "0")
+
+              COMMIT_MSG="🗄️ Población histórica BD ${FECHA} | Facturas: ${FACTURAS} | Notas pendientes: ${NOTAS_PENDIENTES} | Período: ${{ github.event.inputs.fecha_inicio }} a ${{ github.event.inputs.fecha_fin }}"
+
+              git commit -m "$COMMIT_MSG"
+              git push
+
+              echo "✅ Base de datos guardada en el repositorio"
+              echo "📊 Facturas: ${FACTURAS}"
+              echo "📊 Notas pendientes: ${NOTAS_PENDIENTES}"
+            fi
+          else
+            echo "⚠️  Base de datos no encontrada"
+          fi
+
+          echo "=================================================="
+
+      - name: 📊 Cargar Excel generado como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: facturas-historicas-${{ github.run_number }}
+          path: output/*.xlsx
+          retention-days: 30
+
+      - name: 💾 Crear backup como artifact
+        if: always()
+        run: |
+          if [ -f data/notas_credito.db ]; then
+            mkdir -p backups
+            TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+            cp data/notas_credito.db backups/notas_credito_poblacion_${TIMESTAMP}.db
+            echo "✅ Backup creado: backups/notas_credito_poblacion_${TIMESTAMP}.db"
+          fi
+
+      - name: 📦 Subir backup como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-poblacion-${{ github.run_number }}
+          path: backups/*.db
+          retention-days: 7
