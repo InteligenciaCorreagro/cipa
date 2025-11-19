@@ -11,6 +11,7 @@ import NotasPage from '@/pages/NotasPage'
 import NotaDetailPage from '@/pages/NotaDetailPage'
 import UserManagementPage from '@/pages/UserManagementPage'
 import OperativeReportPage from '@/pages/OperativeReportPage'
+import AdminProcesarRangoPage from '@/pages/AdminProcesarRangoPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +51,7 @@ function App() {
             <Route path="notas/:id" element={<NotaDetailPage />} />
             <Route path="usuarios" element={<UserManagementPage />} />
             <Route path="reporte-operativo" element={<OperativeReportPage />} />
+            <Route path="admin/procesar-rango" element={<AdminProcesarRangoPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
