@@ -76,54 +76,37 @@ class NotasCreditoManager:
         ''')
         
         # Tabla de facturas válidas (las que pasan las reglas de negocio)
+        # NOTA: Esta tabla usa nombres simplificados diferentes a los del Excel transformado
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS facturas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                -- Campos del Excel
                 numero_factura TEXT NOT NULL,
-                nombre_producto TEXT NOT NULL,
-                codigo_subyacente TEXT NOT NULL,
-                unidad_medida TEXT NOT NULL,
-                cantidad REAL NOT NULL,
-                precio_unitario REAL NOT NULL,
                 fecha_factura DATE NOT NULL,
-                fecha_pago DATE,
-                nit_comprador TEXT NOT NULL,
-                nombre_comprador TEXT NOT NULL,
-                nit_vendedor TEXT NOT NULL,
-                nombre_vendedor TEXT NOT NULL,
-                principal TEXT NOT NULL,
-                municipio TEXT,
-                iva TEXT,
-                descripcion TEXT,
-                activa_factura TEXT DEFAULT '1',
-                activa_bodega TEXT DEFAULT '1',
-                incentivo TEXT,
-                cantidad_original REAL NOT NULL,
-                moneda TEXT DEFAULT '1',
-                um_base TEXT NOT NULL,
+                nit_cliente TEXT NOT NULL,
+                nombre_cliente TEXT NOT NULL,
+                codigo_producto TEXT NOT NULL,
+                nombre_producto TEXT NOT NULL,
+                tipo_inventario TEXT,
                 valor_total REAL NOT NULL,
-                codigo_producto_api TEXT NOT NULL,
-                condicion_pago TEXT,
-
-                -- Campos de notas de crédito
+                cantidad REAL NOT NULL,
+                valor_unitario REAL,
+                estado TEXT DEFAULT 'PROCESADA',
                 tiene_nota_credito INTEGER DEFAULT 0,
                 numero_nota_aplicada TEXT,
                 valor_nota_aplicada REAL DEFAULT 0,
                 cantidad_nota_aplicada REAL DEFAULT 0,
-
-                -- Metadata
                 fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-                UNIQUE(numero_factura, codigo_producto_api)
+                fecha_proceso DATE,
+                UNIQUE(numero_factura, codigo_producto, fecha_proceso)
             )
         ''')
 
         # Índices para mejorar rendimiento en tabla facturas
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_comprador)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_notas ON facturas(tiene_nota_credito)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha_proceso ON facturas(fecha_proceso)')
 
         # Tabla de facturas rechazadas (para auditoría y detección de nuevos tipos)
         cursor.execute('''
@@ -618,102 +601,16 @@ class NotasCreditoManager:
             logger.error(f"Error al registrar factura rechazada: {e}")
             return False
 
-    def registrar_factura_valida(self, factura: Dict, fecha_proceso=None) -> bool:
-        """
-        Registra una factura válida en la base de datos
-
-        Args:
-            factura: Datos de la factura transformada (ya procesada por ExcelProcessor)
-            fecha_proceso: Fecha del procesamiento (opcional, por defecto usa fecha_factura)
-
-        Returns:
-            True si se registró correctamente
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # Extraer datos de la factura transformada
-            # Las claves vienen del método ExcelProcessor.transformar_factura()
-            numero_factura = str(factura.get('numero_factura', '')).strip()
-
-            # Parsear fecha (puede venir como string o datetime)
-            fecha_factura = factura.get('fecha_factura')
-            if isinstance(fecha_factura, str):
-                try:
-                    # Intentar varios formatos de fecha
-                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%dT%H:%M:%S']:
-                        try:
-                            fecha_factura = datetime.strptime(fecha_factura, fmt).date()
-                            break
-                        except:
-                            continue
-                except:
-                    fecha_factura = datetime.now().date()
-            elif hasattr(fecha_factura, 'date'):
-                fecha_factura = fecha_factura.date()
-            else:
-                fecha_factura = datetime.now().date()
-
-            # Usar fecha_proceso si se proporciona, sino usar fecha_factura
-            if fecha_proceso is None:
-                fecha_proceso = fecha_factura
-            elif isinstance(fecha_proceso, str):
-                try:
-                    fecha_proceso = datetime.strptime(fecha_proceso, '%Y-%m-%d').date()
-                except:
-                    fecha_proceso = fecha_factura
-            elif hasattr(fecha_proceso, 'date'):
-                fecha_proceso = fecha_proceso.date()
-
-            # Mapear campos del diccionario transformado a columnas de la BD
-            nit_cliente = str(factura.get('nit_comprador', '')).strip()
-            nombre_cliente = str(factura.get('nombre_comprador', '')).strip()
-            codigo_producto = str(factura.get('codigo_producto_api', '')).strip()
-            nombre_producto = str(factura.get('nombre_producto', '')).strip()
-            tipo_inventario = str(factura.get('descripcion', '')).strip()
-
-            valor_total = float(factura.get('valor_total', 0.0) or 0.0)
-            cantidad = float(factura.get('cantidad', 0.0) or 0.0)
-            valor_unitario = float(factura.get('precio_unitario', 0.0) or 0.0)
-
-            # Insertar o actualizar factura válida
-            cursor.execute('''
-                INSERT INTO facturas
-                (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                 codigo_producto, nombre_producto, tipo_inventario,
-                 valor_total, cantidad, valor_unitario, fecha_proceso, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
-                ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
-                    fecha_factura = excluded.fecha_factura,
-                    valor_total = excluded.valor_total,
-                    cantidad = excluded.cantidad,
-                    valor_unitario = excluded.valor_unitario
-            ''', (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                  codigo_producto, nombre_producto, tipo_inventario,
-                  valor_total, cantidad, valor_unitario, fecha_proceso))
-
-            conn.commit()
-            conn.close()
-
-            logger.debug(f"Factura válida registrada: {numero_factura} (proceso: {fecha_proceso})")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error al registrar factura válida: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
 
     def actualizar_factura_con_nota(self, numero_factura: str, codigo_producto: str,
-                                    numero_nota: str, valor_aplicado: float, 
+                                    numero_nota: str, valor_aplicado: float,
                                     cantidad_aplicada: float) -> bool:
         """
         Actualiza una factura marcándola con nota de crédito aplicada
 
         Args:
             numero_factura: Número de factura
-            codigo_producto: Código del producto (API)
+            codigo_producto: Código del producto
             numero_nota: Número de la nota aplicada
             valor_aplicado: Valor de la nota aplicada
             cantidad_aplicada: Cantidad de la nota aplicada
@@ -731,7 +628,7 @@ class NotasCreditoManager:
                     numero_nota_aplicada = ?,
                     valor_nota_aplicada = valor_nota_aplicada + ?,
                     cantidad_nota_aplicada = cantidad_nota_aplicada + ?
-                WHERE numero_factura = ? AND codigo_producto_api = ?
+                WHERE numero_factura = ? AND codigo_producto = ?
             ''', (numero_nota, valor_aplicado, cantidad_aplicada, numero_factura, codigo_producto))
 
             conn.commit()
@@ -832,18 +729,18 @@ class NotasCreditoManager:
     
     def registrar_factura_completa(self, factura_transformada: Dict) -> bool:
         """
-        Registra una factura con todos los campos del Excel transformado
-        
+        Registra una factura transformada mapeando sus campos al esquema simplificado de la BD
+
         Args:
             factura_transformada: Factura ya procesada por ExcelProcessor.transformar_factura()
-            
+
         Returns:
             True si se registró correctamente
         """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Parsear fecha_factura (puede venir como date o datetime)
             fecha_factura = factura_transformada.get('fecha_factura')
             if isinstance(fecha_factura, str):
@@ -855,67 +752,42 @@ class NotasCreditoManager:
                 fecha_factura = fecha_factura.date() if callable(fecha_factura.date) else fecha_factura
             else:
                 fecha_factura = datetime.now().date()
-            
-            # Parsear fecha_pago (puede ser None)
-            fecha_pago = factura_transformada.get('fecha_pago')
-            if fecha_pago:
-                if isinstance(fecha_pago, str):
-                    try:
-                        fecha_pago = datetime.strptime(fecha_pago, '%Y-%m-%d').date()
-                    except:
-                        fecha_pago = None
-                elif hasattr(fecha_pago, 'date'):
-                    fecha_pago = fecha_pago.date() if callable(fecha_pago.date) else fecha_pago
-            
+
+            # Mapear campos del Excel transformado al esquema simplificado de la BD
+            numero_factura = str(factura_transformada.get('numero_factura', '')).strip()
+            nit_cliente = str(factura_transformada.get('nit_comprador', '')).strip()
+            nombre_cliente = str(factura_transformada.get('nombre_comprador', '')).strip()
+            codigo_producto = str(factura_transformada.get('codigo_producto_api', '')).strip()
+            nombre_producto = str(factura_transformada.get('nombre_producto', '')).strip()
+            tipo_inventario = str(factura_transformada.get('descripcion', '')).strip()
+            valor_total = float(factura_transformada.get('valor_total', 0.0) or 0.0)
+            cantidad = float(factura_transformada.get('cantidad', 0.0) or 0.0)
+            valor_unitario = float(factura_transformada.get('precio_unitario', 0.0) or 0.0)
+            fecha_proceso = fecha_factura  # Por defecto, fecha_proceso = fecha_factura
+
             cursor.execute('''
                 INSERT INTO facturas (
-                    numero_factura, nombre_producto, codigo_subyacente, unidad_medida,
-                    cantidad, precio_unitario, fecha_factura, fecha_pago,
-                    nit_comprador, nombre_comprador, nit_vendedor, nombre_vendedor,
-                    principal, municipio, iva, descripcion,
-                    activa_factura, activa_bodega, incentivo,
-                    cantidad_original, moneda, um_base, valor_total,
-                    codigo_producto_api, condicion_pago
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(numero_factura, codigo_producto_api) DO UPDATE SET
-                    cantidad = excluded.cantidad,
-                    precio_unitario = excluded.precio_unitario,
+                    numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                    codigo_producto, nombre_producto, tipo_inventario,
+                    valor_total, cantidad, valor_unitario, fecha_proceso, estado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
+                ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
+                    fecha_factura = excluded.fecha_factura,
                     valor_total = excluded.valor_total,
-                    fecha_pago = excluded.fecha_pago
+                    cantidad = excluded.cantidad,
+                    valor_unitario = excluded.valor_unitario
             ''', (
-                factura_transformada['numero_factura'],
-                factura_transformada['nombre_producto'],
-                factura_transformada['codigo_subyacente'],
-                factura_transformada['unidad_medida'],
-                factura_transformada['cantidad'],
-                factura_transformada['precio_unitario'],
-                fecha_factura,
-                fecha_pago,
-                factura_transformada['nit_comprador'],
-                factura_transformada['nombre_comprador'],
-                factura_transformada['nit_vendedor'],
-                factura_transformada['nombre_vendedor'],
-                factura_transformada['principal'],
-                factura_transformada.get('municipio', ''),
-                factura_transformada.get('iva', '0'),
-                factura_transformada.get('descripcion', ''),
-                factura_transformada.get('activa_factura', '1'),
-                factura_transformada.get('activa_bodega', '1'),
-                factura_transformada.get('incentivo', ''),
-                factura_transformada['cantidad_original'],
-                factura_transformada.get('moneda', '1'),
-                factura_transformada.get('um_base', ''),
-                factura_transformada['valor_total'],
-                factura_transformada.get('codigo_producto_api', ''),
-                factura_transformada.get('condicion_pago', '')
+                numero_factura, fecha_factura, nit_cliente, nombre_cliente,
+                codigo_producto, nombre_producto, tipo_inventario,
+                valor_total, cantidad, valor_unitario, fecha_proceso
             ))
-            
+
             conn.commit()
             conn.close()
-            
-            logger.debug(f"Factura registrada: {factura_transformada['numero_factura']}")
+
+            logger.debug(f"Factura registrada: {numero_factura} - {codigo_producto}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error al registrar factura completa: {e}")
             import traceback
