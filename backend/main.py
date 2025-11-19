@@ -339,7 +339,7 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
 
                     # Registrar y aplicar notas
                     for factura in facturas_transformadas:
-                        notas_manager.registrar_factura_valida(factura)
+                        notas_manager.registrar_factura_completa(factura)
 
                     aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
                     total_aplicaciones += len(aplicaciones)
