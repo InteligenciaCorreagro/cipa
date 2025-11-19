@@ -633,10 +633,11 @@ class NotasCreditoManager:
             cursor = conn.cursor()
 
             # Extraer datos de la factura transformada
-            numero_factura = str(factura.get('Nro factura', '')).strip()
+            # Las claves vienen del método ExcelProcessor.transformar_factura()
+            numero_factura = str(factura.get('numero_factura', '')).strip()
 
             # Parsear fecha (puede venir como string o datetime)
-            fecha_factura = factura.get('Fecha factura')
+            fecha_factura = factura.get('fecha_factura')
             if isinstance(fecha_factura, str):
                 try:
                     # Intentar varios formatos de fecha
@@ -653,15 +654,16 @@ class NotasCreditoManager:
             else:
                 fecha_factura = datetime.now().date()
 
-            nit_cliente = str(factura.get('NIT Cliente', '')).strip()
-            nombre_cliente = str(factura.get('Razón social', '')).strip()
-            codigo_producto = str(factura.get('Código producto', '')).strip()
-            nombre_producto = str(factura.get('Nombre producto', '')).strip()
-            tipo_inventario = str(factura.get('Tipo inventario', '')).strip()
+            # Mapear campos del diccionario transformado a columnas de la BD
+            nit_cliente = str(factura.get('nit_comprador', '')).strip()
+            nombre_cliente = str(factura.get('nombre_comprador', '')).strip()
+            codigo_producto = str(factura.get('codigo_producto_api', '')).strip()
+            nombre_producto = str(factura.get('nombre_producto', '')).strip()
+            tipo_inventario = str(factura.get('descripcion', '')).strip()
 
-            valor_total = float(factura.get('Vr subtotal', 0.0) or 0.0)
-            cantidad = float(factura.get('Cantidad', 0.0) or 0.0)
-            valor_unitario = float(factura.get('Vr unitario', 0.0) or 0.0)
+            valor_total = float(factura.get('valor_total', 0.0) or 0.0)
+            cantidad = float(factura.get('cantidad', 0.0) or 0.0)
+            valor_unitario = float(factura.get('precio_unitario', 0.0) or 0.0)
 
             # Insertar o actualizar factura válida
             cursor.execute('''
