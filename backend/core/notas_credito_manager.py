@@ -618,12 +618,13 @@ class NotasCreditoManager:
             logger.error(f"Error al registrar factura rechazada: {e}")
             return False
 
-    def registrar_factura_valida(self, factura: Dict) -> bool:
+    def registrar_factura_valida(self, factura: Dict, fecha_proceso=None) -> bool:
         """
         Registra una factura válida en la base de datos
 
         Args:
             factura: Datos de la factura transformada (ya procesada por ExcelProcessor)
+            fecha_proceso: Fecha del procesamiento (opcional, por defecto usa fecha_factura)
 
         Returns:
             True si se registró correctamente
@@ -654,6 +655,17 @@ class NotasCreditoManager:
             else:
                 fecha_factura = datetime.now().date()
 
+            # Usar fecha_proceso si se proporciona, sino usar fecha_factura
+            if fecha_proceso is None:
+                fecha_proceso = fecha_factura
+            elif isinstance(fecha_proceso, str):
+                try:
+                    fecha_proceso = datetime.strptime(fecha_proceso, '%Y-%m-%d').date()
+                except:
+                    fecha_proceso = fecha_factura
+            elif hasattr(fecha_proceso, 'date'):
+                fecha_proceso = fecha_proceso.date()
+
             # Mapear campos del diccionario transformado a columnas de la BD
             nit_cliente = str(factura.get('nit_comprador', '')).strip()
             nombre_cliente = str(factura.get('nombre_comprador', '')).strip()
@@ -670,21 +682,21 @@ class NotasCreditoManager:
                 INSERT INTO facturas
                 (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
                  codigo_producto, nombre_producto, tipo_inventario,
-                 valor_total, cantidad, valor_unitario, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
-                ON CONFLICT(numero_factura, codigo_producto) DO UPDATE SET
+                 valor_total, cantidad, valor_unitario, fecha_proceso, estado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
+                ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
                     fecha_factura = excluded.fecha_factura,
                     valor_total = excluded.valor_total,
                     cantidad = excluded.cantidad,
                     valor_unitario = excluded.valor_unitario
             ''', (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
                   codigo_producto, nombre_producto, tipo_inventario,
-                  valor_total, cantidad, valor_unitario))
+                  valor_total, cantidad, valor_unitario, fecha_proceso))
 
             conn.commit()
             conn.close()
 
-            logger.debug(f"Factura válida registrada: {numero_factura}")
+            logger.debug(f"Factura válida registrada: {numero_factura} (proceso: {fecha_proceso})")
             return True
 
         except Exception as e:
