@@ -177,12 +177,16 @@ def main():
         validator = BusinessRulesValidator()
         excel_processor = ExcelProcessor(TEMPLATE_PATH)
 
-        # Definir fechas a procesar: 10, 11, 12 de noviembre 2025
-        fechas = [
-            datetime(2025, 11, 10),
-            datetime(2025, 11, 11),
-            datetime(2025, 11, 12)
-        ]
+        # Definir fechas a procesar: 1 al 18 de noviembre 2025
+        fecha_inicio = datetime(2025, 11, 1)
+        fecha_fin = datetime(2025, 11, 18)
+
+        # Generar lista de fechas
+        fechas = []
+        fecha_actual = fecha_inicio
+        while fecha_actual <= fecha_fin:
+            fechas.append(fecha_actual)
+            fecha_actual += timedelta(days=1)
 
         logger.info(f"\n{'#'*60}")
         logger.info(f"POBLACIÓN DE DATOS HISTÓRICOS")
