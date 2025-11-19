@@ -121,7 +121,7 @@ class NotasCreditoManager:
 
         # Índices para mejorar rendimiento en tabla facturas
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_comprador)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_notas ON facturas(tiene_nota_credito)')
 
