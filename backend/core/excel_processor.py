@@ -160,6 +160,10 @@ class ExcelProcessor:
             precio_unitario = 0.0
             logger.warning(f"Cantidad convertida es 0 para factura {numero_factura}, precio unitario = 0")
 
+        # Código de producto: usar f_cod_item si existe, sino f_desc_item (igual que las notas)
+        codigo_producto_raw = factura.get('f_cod_item') or factura.get('f_desc_item', '')
+        codigo_producto = str(codigo_producto_raw).strip()
+
         return {
             'numero_factura': numero_factura,
             'nombre_producto': str(factura.get('f_desc_item', '')).strip(),
@@ -184,7 +188,7 @@ class ExcelProcessor:
             'moneda': '1',
             'um_base': um_base,
             'valor_total': valor_total,
-            'codigo_producto_api': str(factura.get('f_cod_item', '')).strip(),
+            'codigo_producto_api': codigo_producto,  # Ahora usa f_cod_item o f_desc_item (igual que notas)
             'condicion_pago': condicion_pago  # Para debug/auditoría
         }
     
