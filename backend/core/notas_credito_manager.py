@@ -262,14 +262,16 @@ class NotasCreditoManager:
             logger.error(f"Error al registrar nota crédito: {e}")
             return False
     
-    def obtener_notas_pendientes(self, nit_cliente: str, codigo_producto: str) -> List[Dict]:
+    def obtener_notas_pendientes(self, nit_cliente: str, codigo_producto: str, fecha_factura: Optional[str] = None) -> List[Dict]:
         """
         Obtiene todas las notas crédito pendientes para un cliente y producto específico
-        
+        Si se proporciona fecha_factura, solo obtiene notas del mismo día (mismo bloque)
+
         Args:
             nit_cliente: NIT del cliente
             codigo_producto: Código del producto
-            
+            fecha_factura: Fecha de la factura para filtrar notas del mismo día (opcional)
+
         Returns:
             Lista de notas crédito pendientes
         """
@@ -277,21 +279,37 @@ class NotasCreditoManager:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT * FROM notas_credito
-                WHERE nit_cliente = ? 
-                AND codigo_producto = ?
-                AND estado = 'PENDIENTE'
-                AND saldo_pendiente > 0
-                ORDER BY fecha_nota ASC
-            ''', (nit_cliente, codigo_producto))
-            
+
+            # Si se proporciona fecha, filtrar solo notas del mismo día
+            if fecha_factura:
+                cursor.execute('''
+                    SELECT * FROM notas_credito
+                    WHERE nit_cliente = ?
+                    AND codigo_producto = ?
+                    AND fecha_nota = ?
+                    AND estado = 'PENDIENTE'
+                    AND saldo_pendiente > 0
+                    ORDER BY fecha_nota ASC
+                ''', (nit_cliente, codigo_producto, fecha_factura))
+                logger.debug(f"Buscando notas del mismo día ({fecha_factura}) para NIT {nit_cliente} y producto {codigo_producto}")
+            else:
+                cursor.execute('''
+                    SELECT * FROM notas_credito
+                    WHERE nit_cliente = ?
+                    AND codigo_producto = ?
+                    AND estado = 'PENDIENTE'
+                    AND saldo_pendiente > 0
+                    ORDER BY fecha_nota ASC
+                ''', (nit_cliente, codigo_producto))
+
             notas = [dict(row) for row in cursor.fetchall()]
             conn.close()
-            
+
+            if fecha_factura:
+                logger.debug(f"Encontradas {len(notas)} notas del mismo día ({fecha_factura})")
+
             return notas
-            
+
         except Exception as e:
             logger.error(f"Error al obtener notas pendientes: {e}")
             return []
@@ -437,34 +455,50 @@ class NotasCreditoManager:
     def procesar_notas_para_facturas(self, facturas: List[Dict]) -> List[Dict]:
         """
         Procesa la aplicación de notas crédito pendientes a un lote de facturas
-        
+        SOLO aplica notas del mismo día (mismo bloque) que la factura
+
         Args:
             facturas: Lista de facturas transformadas
-            
+
         Returns:
             Lista de aplicaciones realizadas
         """
         aplicaciones = []
-        
+
         for factura in facturas:
-            # Obtener notas pendientes para este cliente y producto
+            # Obtener fecha de la factura para filtrar notas del mismo día
+            fecha_factura = factura.get('fecha_factura')
+
+            # Convertir fecha a string en formato YYYY-MM-DD si es necesario
+            if fecha_factura:
+                if hasattr(fecha_factura, 'strftime'):
+                    fecha_factura_str = fecha_factura.strftime('%Y-%m-%d')
+                elif isinstance(fecha_factura, str):
+                    fecha_factura_str = fecha_factura
+                else:
+                    fecha_factura_str = str(fecha_factura)
+            else:
+                fecha_factura_str = None
+
+            # Obtener notas pendientes SOLO del mismo día que la factura
             notas_pendientes = self.obtener_notas_pendientes(
                 factura['nit_comprador'],
-                factura.get('codigo_producto_api', '')
+                factura.get('codigo_producto_api', ''),
+                fecha_factura_str  # ✅ Pasar fecha para filtrar mismo día
             )
-            
+
             # Intentar aplicar cada nota pendiente
             for nota in notas_pendientes:
                 aplicacion = self.aplicar_nota_a_factura(nota, factura)
-                
+
                 if aplicacion:
                     aplicaciones.append(aplicacion)
-                    
+
                     # Si la nota se aplicó completamente, pasar a la siguiente nota
                     if aplicacion['estado'] == 'APLICADA':
                         logger.info(f"Nota {aplicacion['numero_nota']} aplicada completamente")
-        
-        logger.info(f"Se realizaron {len(aplicaciones)} aplicaciones de notas crédito")
+
+        logger.info(f"Se realizaron {len(aplicaciones)} aplicaciones de notas crédito (solo mismo día)")
         return aplicaciones
     
     def obtener_resumen_notas(self) -> Dict:
