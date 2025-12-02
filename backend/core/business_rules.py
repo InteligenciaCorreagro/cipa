@@ -46,10 +46,51 @@ class BusinessRulesValidator:
     # Monto mínimo para procesar una factura COMPLETA (en pesos colombianos)
     MONTO_MINIMO = 498000.0
     
+    # Valores de f_02_014 que NO deben registrarse (retención)
+    AGENTES_RETENCION_EXCLUIDOS = {
+        '0002 - NO AGENTE DE RETENCION',
+        '0002',
+        'NO AGENTE DE RETENCION'
+    }
+    
     def __init__(self):
         """Inicializa el validador de reglas de negocio"""
         logger.info(f"BusinessRulesValidator inicializado con {len(self.TIPOS_INVENTARIO_EXCLUIDOS)} tipos excluidos")
         logger.info(f"Monto mínimo por factura completa: ${self.MONTO_MINIMO:,.2f}")
+        logger.info(f"Agentes de retención excluidos: {len(self.AGENTES_RETENCION_EXCLUIDOS)}")
+    
+    def es_agente_retencion_no_permitido(self, factura: Dict) -> bool:
+        """
+        Valida si el campo f_02_014 (agente de retención) debe excluir la factura.
+        
+        VALIDACIÓN CRÍTICA: Si f_02_014 contiene "0002 - NO AGENTE DE RETENCION",
+        la factura NO se registra en el sistema.
+        
+        Args:
+            factura: Datos de la factura desde la API
+            
+        Returns:
+            True si debe ser excluido (NO es agente de retención), False si es permitido
+        """
+        # Obtener valor del campo f_02_014
+        agente_retencion = str(factura.get('f_02_014', '')).strip()
+        
+        if not agente_retencion:
+            # Si no tiene valor, se permite (se asume que sí es agente)
+            return False
+        
+        # Normalizar: convertir a mayúsculas para comparación case-insensitive
+        agente_normalizado = agente_retencion.upper().strip()
+        
+        # Comparar con valores excluidos (coincidencia por igualdad o contenido)
+        for valor_excluido in self.AGENTES_RETENCION_EXCLUIDOS:
+            valor_excluido_normalizado = valor_excluido.upper()
+            if valor_excluido_normalizado in agente_normalizado:
+                logger.warning(f"⚠️ Factura rechazada: NO AGENTE DE RETENCION (f_02_014='{agente_retencion}') - "
+                             f"Factura: {self.obtener_numero_factura_completo(factura)}")
+                return True
+        
+        return False
     
     def obtener_numero_factura_completo(self, factura: Dict) -> str:
         """
@@ -232,7 +273,15 @@ class BusinessRulesValidator:
                     notas_credito.append(factura)
                     logger.debug(f"✅ Nota crédito aceptada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo inventario: '{tipo_inv}'")
             else:
-                facturas_regulares.append(factura)
+                # VALIDACIÓN CRÍTICA: Verificar f_02_014 (agente de retención)
+                if self.es_agente_retencion_no_permitido(factura):
+                    razon = f"NO AGENTE DE RETENCION (f_02_014='{factura.get('f_02_014', '')}') - No debe registrarse"
+                    facturas_rechazadas.append({
+                        'factura': factura,
+                        'razon_rechazo': razon
+                    })
+                else:
+                    facturas_regulares.append(factura)
 
         logger.info(f"Total documentos: {len(facturas)} ({len(facturas_regulares)} facturas, {len(notas_credito)} notas crédito válidas, {len(facturas_rechazadas)} documentos rechazados)")
         
