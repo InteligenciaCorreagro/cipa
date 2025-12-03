@@ -50,14 +50,14 @@ def guardar_facturas_en_bd(facturas_transformadas, notas_por_factura, fecha_proc
 
         # Determinar si tiene nota aplicada
         tiene_nota = numero_factura in notas_por_factura
-        descripcion_nota = None
+        numero_nota = None
 
         if tiene_nota:
             notas_aplicadas = notas_por_factura[numero_factura]
             if len(notas_aplicadas) == 1:
-                descripcion_nota = f"Nota aplicada: {notas_aplicadas[0]}"
+                numero_nota = notas_aplicadas[0]
             else:
-                descripcion_nota = f"Notas aplicadas: {', '.join(notas_aplicadas)}"
+                numero_nota = ', '.join(notas_aplicadas)
 
         try:
             # Insertar o actualizar factura (puede existir si se procesa el mismo día múltiples veces)
@@ -65,29 +65,29 @@ def guardar_facturas_en_bd(facturas_transformadas, notas_por_factura, fecha_proc
                 INSERT INTO facturas (
                     numero_factura, fecha_factura, nit_cliente, nombre_cliente,
                     codigo_producto, nombre_producto, tipo_inventario,
-                    valor_total, cantidad, valor_transado, cantidad_transada,
-                    descripcion_nota_aplicada, tiene_nota_credito, fecha_proceso
+                    valor_total, cantidad, valor_nota_aplicada, cantidad_nota_aplicada,
+                    numero_nota_aplicada, tiene_nota_credito, fecha_proceso
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
                     valor_total = excluded.valor_total,
                     cantidad = excluded.cantidad,
-                    valor_transado = excluded.valor_transado,
-                    cantidad_transada = excluded.cantidad_transada,
-                    descripcion_nota_aplicada = excluded.descripcion_nota_aplicada,
+                    valor_nota_aplicada = excluded.valor_nota_aplicada,
+                    cantidad_nota_aplicada = excluded.cantidad_nota_aplicada,
+                    numero_nota_aplicada = excluded.numero_nota_aplicada,
                     tiene_nota_credito = excluded.tiene_nota_credito
             ''', (
                 numero_factura,
                 factura.get('fecha_factura', fecha_proceso),
-                factura.get('nit_cliente', ''),
-                factura.get('nombre_cliente', ''),
-                factura.get('codigo_producto', ''),
-                factura.get('descripcion', ''),  # nombre_producto
-                factura.get('tipo_inventario', ''),
+                factura.get('nit_comprador', ''),  # nit_cliente
+                factura.get('nombre_comprador', ''),  # nombre_cliente
+                factura.get('codigo_producto_api', ''),  # ✅ CORREGIDO: era 'codigo_producto'
+                factura.get('nombre_producto', ''),  # nombre_producto
+                factura.get('descripcion', ''),  # tipo_inventario
                 factura.get('valor_total', 0.0),
                 factura.get('cantidad', 0.0),
-                factura.get('valor_transado', 0.0),
-                factura.get('cantidad_transada', 0.0),
-                descripcion_nota,
+                factura.get('valor_transado', 0.0),  # Se guardará en valor_nota_aplicada
+                factura.get('cantidad_transada', 0.0),  # Se guardará en cantidad_nota_aplicada
+                numero_nota,
                 1 if tiene_nota else 0,
                 fecha_proceso
             ))
