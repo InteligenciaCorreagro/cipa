@@ -42,6 +42,8 @@ class NotasCreditoManager:
         # =========================================================================
         # TABLA FACTURAS
         # Guarda cada línea de factura válida con toda la información requerida
+        # IMPORTANTE: indice_linea permite guardar múltiples líneas del mismo
+        # producto en la misma factura sin que se sobrescriban
         # =========================================================================
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS facturas (
@@ -49,6 +51,7 @@ class NotasCreditoManager:
                 -- Identificación de la línea
                 numero_linea TEXT NOT NULL,
                 numero_factura TEXT NOT NULL,
+                indice_linea INTEGER DEFAULT 0,
                 producto TEXT NOT NULL,
                 codigo_producto TEXT NOT NULL,
 
@@ -76,7 +79,7 @@ class NotasCreditoManager:
                 fecha_proceso DATE,
                 estado TEXT DEFAULT 'PROCESADA',
 
-                UNIQUE(numero_factura, codigo_producto, fecha_proceso)
+                UNIQUE(numero_factura, codigo_producto, indice_linea, fecha_proceso)
             )
         ''')
 
@@ -87,6 +90,7 @@ class NotasCreditoManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_producto ON facturas(codigo_producto)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_nota ON facturas(nota_aplicada)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_indice ON facturas(indice_linea)')
 
         # =========================================================================
         # TABLA FACTURAS_RECHAZADAS
@@ -230,6 +234,100 @@ class NotasCreditoManager:
 
         logger.info("Base de datos inicializada correctamente con todas las tablas")
 
+        # Ejecutar migración para BD existentes
+        self._migrar_tabla_facturas()
+
+    def _migrar_tabla_facturas(self):
+        """
+        Migra la tabla facturas para agregar la columna indice_linea y actualizar
+        el constraint UNIQUE. Esto es necesario para BD creadas antes de este cambio.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Verificar si la columna indice_linea existe
+            cursor.execute("PRAGMA table_info(facturas)")
+            columnas = [col[1] for col in cursor.fetchall()]
+
+            if 'indice_linea' not in columnas:
+                logger.info("Migrando tabla facturas: agregando columna indice_linea...")
+
+                # SQLite requiere recrear la tabla para cambiar el UNIQUE constraint
+                # 1. Renombrar tabla actual
+                cursor.execute('ALTER TABLE facturas RENAME TO facturas_old')
+
+                # 2. Crear nueva tabla con el nuevo esquema
+                cursor.execute('''
+                    CREATE TABLE facturas (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        numero_linea TEXT NOT NULL,
+                        numero_factura TEXT NOT NULL,
+                        indice_linea INTEGER DEFAULT 0,
+                        producto TEXT NOT NULL,
+                        codigo_producto TEXT NOT NULL,
+                        nit_cliente TEXT NOT NULL,
+                        nombre_cliente TEXT NOT NULL,
+                        cantidad_original REAL NOT NULL,
+                        precio_unitario REAL NOT NULL,
+                        valor_total REAL NOT NULL,
+                        nota_aplicada INTEGER DEFAULT 0,
+                        numero_nota_aplicada TEXT,
+                        descuento_cantidad REAL DEFAULT 0,
+                        descuento_valor REAL DEFAULT 0,
+                        cantidad_restante REAL,
+                        valor_restante REAL,
+                        tipo_inventario TEXT,
+                        fecha_factura DATE NOT NULL,
+                        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        fecha_proceso DATE,
+                        estado TEXT DEFAULT 'PROCESADA',
+                        UNIQUE(numero_factura, codigo_producto, indice_linea, fecha_proceso)
+                    )
+                ''')
+
+                # 3. Copiar datos existentes (con indice_linea=0)
+                cursor.execute('''
+                    INSERT INTO facturas (
+                        id, numero_linea, numero_factura, indice_linea, producto, codigo_producto,
+                        nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
+                        valor_total, nota_aplicada, numero_nota_aplicada, descuento_cantidad,
+                        descuento_valor, cantidad_restante, valor_restante, tipo_inventario,
+                        fecha_factura, fecha_registro, fecha_proceso, estado
+                    )
+                    SELECT
+                        id, numero_linea, numero_factura, 0, producto, codigo_producto,
+                        nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
+                        valor_total, nota_aplicada, numero_nota_aplicada, descuento_cantidad,
+                        descuento_valor, cantidad_restante, valor_restante, tipo_inventario,
+                        fecha_factura, fecha_registro, fecha_proceso, estado
+                    FROM facturas_old
+                ''')
+
+                # 4. Eliminar tabla antigua
+                cursor.execute('DROP TABLE facturas_old')
+
+                # 5. Recrear índices
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_linea ON facturas(numero_linea)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_producto ON facturas(codigo_producto)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_nota ON facturas(nota_aplicada)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_indice ON facturas(indice_linea)')
+
+                conn.commit()
+                logger.info("Migración completada: tabla facturas actualizada con indice_linea")
+            else:
+                logger.debug("Columna indice_linea ya existe, no se requiere migración")
+
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"Error en migración de tabla facturas: {e}")
+            import traceback
+            traceback.print_exc()
+
     def registrar_nota_credito(self, nota: Dict) -> bool:
         """
         Registra una nueva nota crédito en la base de datos
@@ -318,6 +416,10 @@ class NotasCreditoManager:
         """
         Registra una línea de factura en la base de datos
 
+        IMPORTANTE: Cada línea se identifica por (numero_factura, codigo_producto,
+        indice_linea, fecha_proceso). Esto permite guardar múltiples líneas del
+        mismo producto en la misma factura.
+
         Args:
             factura_transformada: Factura ya procesada por ExcelProcessor
 
@@ -343,6 +445,7 @@ class NotasCreditoManager:
             # Extraer datos
             numero_factura = str(factura_transformada.get('numero_factura', '')).strip()
             numero_linea = numero_factura  # La línea es el prefijo+número (ej: fem2020)
+            indice_linea = int(factura_transformada.get('indice_linea', 0))  # Índice único de línea
             codigo_producto = str(factura_transformada.get('codigo_producto_api', '')).strip()
             producto = str(factura_transformada.get('nombre_producto', '')).strip()
             nit_cliente = str(factura_transformada.get('nit_comprador', '')).strip()
@@ -355,17 +458,17 @@ class NotasCreditoManager:
 
             cursor.execute('''
                 INSERT INTO facturas (
-                    numero_linea, numero_factura, producto, codigo_producto,
+                    numero_linea, numero_factura, indice_linea, producto, codigo_producto,
                     nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
                     valor_total, cantidad_restante, valor_restante, tipo_inventario,
                     fecha_factura, fecha_proceso, estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
-                ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
+                ON CONFLICT(numero_factura, codigo_producto, indice_linea, fecha_proceso) DO UPDATE SET
                     cantidad_original = excluded.cantidad_original,
                     valor_total = excluded.valor_total,
                     precio_unitario = excluded.precio_unitario
             ''', (
-                numero_linea, numero_factura, producto, codigo_producto,
+                numero_linea, numero_factura, indice_linea, producto, codigo_producto,
                 nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
                 valor_total, cantidad_original, valor_total, tipo_inventario,
                 fecha_factura, fecha_proceso
@@ -374,7 +477,7 @@ class NotasCreditoManager:
             conn.commit()
             conn.close()
 
-            logger.debug(f"Factura registrada: {numero_linea} - {codigo_producto}")
+            logger.debug(f"Factura registrada: {numero_linea} línea {indice_linea} - {codigo_producto}")
             return True
 
         except Exception as e:

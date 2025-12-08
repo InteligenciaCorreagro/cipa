@@ -236,24 +236,32 @@ class BusinessRulesValidator:
     def filtrar_facturas(self, facturas: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
         """
         Filtra facturas según reglas de negocio y separa notas crédito
-        
+
         IMPORTANTE: La validación de monto mínimo se aplica a la FACTURA COMPLETA,
         no a cada línea individual. Si una factura tiene múltiples líneas, se suman
         todas y se valida el total.
-        
+
+        IMPORTANTE: Cada línea recibe un índice único (_indice_linea) para distinguir
+        múltiples líneas del mismo producto en la misma factura.
+
         Args:
             facturas: Lista de facturas desde la API
-            
+
         Returns:
             Tupla con tres listas:
             - facturas_validas: Facturas que cumplen todas las reglas
             - notas_credito: Notas crédito identificadas
             - facturas_rechazadas: Facturas rechazadas con razón
         """
+        # Asignar índice único a cada línea ANTES de procesar
+        # Esto permite distinguir líneas duplicadas del mismo producto en la misma factura
+        for idx, factura in enumerate(facturas):
+            factura['_indice_linea'] = idx
+
         facturas_validas = []
         notas_credito = []
         facturas_rechazadas = []
-        
+
         # Separar notas crédito y validar tipo de inventario
         # IMPORTANTE: Las notas de crédito con prefijo 'N' se aceptan
         # SOLO si su tipo de inventario NO está en TIPOS_INVENTARIO_EXCLUIDOS
