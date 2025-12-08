@@ -40,6 +40,11 @@ class NotasCreditoManager:
         cursor = conn.cursor()
 
         # =========================================================================
+        # PRIMERO: Verificar si necesitamos migrar la tabla facturas existente
+        # =========================================================================
+        self._migrar_tabla_facturas_si_necesario(cursor)
+
+        # =========================================================================
         # TABLA FACTURAS
         # Guarda cada línea de factura válida con toda la información requerida
         # IMPORTANTE: indice_linea permite guardar múltiples líneas del mismo
@@ -83,7 +88,7 @@ class NotasCreditoManager:
             )
         ''')
 
-        # Índices para facturas
+        # Índices para facturas (solo después de asegurar que la tabla tiene el esquema correcto)
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_linea ON facturas(numero_linea)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
@@ -234,17 +239,22 @@ class NotasCreditoManager:
 
         logger.info("Base de datos inicializada correctamente con todas las tablas")
 
-        # Ejecutar migración para BD existentes
-        self._migrar_tabla_facturas()
-
-    def _migrar_tabla_facturas(self):
+    def _migrar_tabla_facturas_si_necesario(self, cursor):
         """
         Migra la tabla facturas para agregar la columna indice_linea y actualizar
         el constraint UNIQUE. Esto es necesario para BD creadas antes de este cambio.
+
+        IMPORTANTE: Esta función se llama ANTES de crear índices para evitar errores.
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            # Verificar si la tabla facturas existe
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='facturas'")
+            tabla_existe = cursor.fetchone() is not None
+
+            if not tabla_existe:
+                # La tabla no existe, será creada después con el esquema correcto
+                logger.debug("Tabla facturas no existe, se creará con el nuevo esquema")
+                return
 
             # Verificar si la columna indice_linea existe
             cursor.execute("PRAGMA table_info(facturas)")
@@ -307,21 +317,9 @@ class NotasCreditoManager:
                 # 4. Eliminar tabla antigua
                 cursor.execute('DROP TABLE facturas_old')
 
-                # 5. Recrear índices
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_linea ON facturas(numero_linea)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_producto ON facturas(codigo_producto)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_nota ON facturas(nota_aplicada)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_indice ON facturas(indice_linea)')
-
-                conn.commit()
                 logger.info("Migración completada: tabla facturas actualizada con indice_linea")
             else:
                 logger.debug("Columna indice_linea ya existe, no se requiere migración")
-
-            conn.close()
 
         except Exception as e:
             logger.error(f"Error en migración de tabla facturas: {e}")
