@@ -733,6 +733,278 @@ def dashboard():
         return jsonify({"error": "Error al obtener datos del dashboard"}), 500
 
 
+# =========================================================================
+# ENDPOINTS DE ADMIN - EXPORTACIÓN Y PROCESAMIENTO
+# =========================================================================
+
+@app.route('/api/admin/exportar-excel', methods=['POST'])
+@jwt_required()
+def exportar_excel_bd():
+    """
+    Exporta datos de la BD a Excel por rango de fechas
+    Solo para admins
+    """
+    try:
+        claims = get_jwt()
+        if claims.get('rol') != 'admin':
+            return jsonify({"error": "No tiene permisos para exportar"}), 403
+
+        data = request.get_json()
+        fecha_desde = data.get('fecha_desde')
+        fecha_hasta = data.get('fecha_hasta')
+        tipo = data.get('tipo', 'facturas')  # facturas, notas, rechazadas
+
+        if not fecha_desde or not fecha_hasta:
+            return jsonify({"error": "Fechas requeridas"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Determinar query según tipo
+        if tipo == 'facturas':
+            cursor.execute('''
+                SELECT numero_linea, numero_factura, producto, codigo_producto,
+                       nombre_cliente, nit_cliente, cantidad_original, precio_unitario,
+                       valor_total, nota_aplicada, numero_nota_aplicada,
+                       descuento_cantidad, descuento_valor, cantidad_restante,
+                       valor_restante, fecha_factura
+                FROM facturas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_factura DESC, numero_factura
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Linea', 'Factura', 'Producto', 'Codigo', 'Cliente', 'NIT',
+                      'Cantidad', 'Precio Unit', 'Valor Total', 'Nota Aplicada',
+                      'Num Nota', 'Desc Cantidad', 'Desc Valor', 'Cant Rest',
+                      'Valor Rest', 'Fecha']
+
+        elif tipo == 'notas':
+            cursor.execute('''
+                SELECT numero_nota, fecha_nota, nombre_cliente, nit_cliente,
+                       nombre_producto, codigo_producto, cantidad, valor_total,
+                       cantidad_pendiente, saldo_pendiente, estado, causal_devolucion
+                FROM notas_credito
+                WHERE fecha_nota >= ? AND fecha_nota <= ?
+                ORDER BY fecha_nota DESC
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Nota', 'Fecha', 'Cliente', 'NIT', 'Producto', 'Codigo',
+                      'Cantidad', 'Valor Total', 'Cant Pend', 'Saldo Pend',
+                      'Estado', 'Causal']
+
+        elif tipo == 'rechazadas':
+            cursor.execute('''
+                SELECT numero_factura, numero_linea, producto, codigo_producto,
+                       nombre_cliente, nit_cliente, cantidad, valor_total,
+                       tipo_inventario, razon_rechazo, fecha_factura
+                FROM facturas_rechazadas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_factura DESC
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Factura', 'Linea', 'Producto', 'Codigo', 'Cliente', 'NIT',
+                      'Cantidad', 'Valor', 'Tipo Inv', 'Razon Rechazo', 'Fecha']
+
+        elif tipo == 'aplicaciones':
+            cursor.execute('''
+                SELECT numero_nota, numero_factura, numero_linea, nit_cliente,
+                       codigo_producto, cantidad_aplicada, valor_aplicado, fecha_aplicacion
+                FROM aplicaciones_notas
+                WHERE DATE(fecha_aplicacion) >= ? AND DATE(fecha_aplicacion) <= ?
+                ORDER BY fecha_aplicacion DESC
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Nota', 'Factura', 'Linea', 'NIT', 'Codigo',
+                      'Cantidad Aplicada', 'Valor Aplicado', 'Fecha']
+        else:
+            return jsonify({"error": "Tipo inválido"}), 400
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return jsonify({"error": "No hay datos para el rango seleccionado"}), 404
+
+        # Generar Excel
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        except ImportError:
+            return jsonify({"error": "openpyxl no instalado"}), 500
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = tipo.capitalize()
+
+        # Estilos
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+        # Headers
+        for col, header in enumerate(columns, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin_border
+
+        # Datos
+        for row_idx, row in enumerate(rows, 2):
+            for col_idx, value in enumerate(row, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.border = thin_border
+
+        # Ajustar anchos
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column].width = adjusted_width
+
+        # Guardar
+        output_dir = PROJECT_ROOT / 'output'
+        output_dir.mkdir(exist_ok=True)
+
+        filename = f"export_{tipo}_{fecha_desde}_{fecha_hasta}.xlsx"
+        output_path = output_dir / filename
+
+        wb.save(str(output_path))
+
+        return jsonify({
+            "exito": True,
+            "mensaje": f"Excel generado con {len(rows)} registros",
+            "archivo": filename,
+            "total_registros": len(rows)
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en exportar_excel_bd: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al exportar: {str(e)}"}), 500
+
+
+@app.route('/api/admin/descargar/<filename>', methods=['GET'])
+@jwt_required()
+def descargar_archivo(filename):
+    """Descarga un archivo generado"""
+    try:
+        from flask import send_file
+
+        # Validar nombre de archivo (seguridad)
+        if '..' in filename or '/' in filename:
+            return jsonify({"error": "Nombre de archivo inválido"}), 400
+
+        output_dir = PROJECT_ROOT / 'output'
+        file_path = output_dir / filename
+
+        if not file_path.exists():
+            return jsonify({"error": "Archivo no encontrado"}), 404
+
+        return send_file(
+            str(file_path),
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logger.error(f"Error al descargar archivo: {e}")
+        return jsonify({"error": "Error al descargar archivo"}), 500
+
+
+@app.route('/api/admin/procesar-rango', methods=['POST'])
+@jwt_required()
+def procesar_rango():
+    """
+    Procesa un rango de fechas desde la API externa y guarda en BD
+    Solo para admins - Proceso largo
+    """
+    try:
+        claims = get_jwt()
+        if claims.get('rol') != 'admin':
+            return jsonify({"error": "No tiene permisos"}), 403
+
+        data = request.get_json()
+        fecha_desde_str = data.get('fecha_desde')
+        fecha_hasta_str = data.get('fecha_hasta')
+
+        if not fecha_desde_str or not fecha_hasta_str:
+            return jsonify({"error": "Fechas requeridas"}), 400
+
+        fecha_desde = datetime.strptime(fecha_desde_str, '%Y-%m-%d')
+        fecha_hasta = datetime.strptime(fecha_hasta_str, '%Y-%m-%d')
+
+        # Validar rango máximo 90 días
+        diff_days = (fecha_hasta - fecha_desde).days
+        if diff_days > 90:
+            return jsonify({"error": "Rango máximo permitido: 90 días"}), 400
+
+        if fecha_desde > fecha_hasta:
+            return jsonify({"error": "Fecha desde debe ser anterior a fecha hasta"}), 400
+
+        # Importar función de procesamiento
+        sys.path.insert(0, str(BACKEND_DIR))
+        from main import procesar_rango_fechas
+
+        # Configuración
+        config = {
+            'CONNI_KEY': os.getenv('CONNI_KEY'),
+            'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
+            'DB_PATH': str(DB_PATH),
+            'TEMPLATE_PATH': os.getenv('TEMPLATE_PATH', './templates/plantilla.xlsx')
+        }
+
+        if not config['CONNI_KEY'] or not config['CONNI_TOKEN']:
+            return jsonify({"error": "Credenciales API no configuradas"}), 500
+
+        # Ejecutar procesamiento
+        resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
+
+        return jsonify(resultado), 200
+
+    except Exception as e:
+        logger.error(f"Error en procesar_rango: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al procesar: {str(e)}"}), 500
+
+
+@app.route('/api/admin/archivos', methods=['GET'])
+@jwt_required()
+def listar_archivos():
+    """Lista archivos disponibles para descarga"""
+    try:
+        output_dir = PROJECT_ROOT / 'output'
+
+        if not output_dir.exists():
+            return jsonify({"archivos": []}), 200
+
+        archivos = []
+        for f in output_dir.iterdir():
+            if f.is_file() and f.suffix in ['.xlsx', '.txt']:
+                archivos.append({
+                    'nombre': f.name,
+                    'tamaño': f.stat().st_size,
+                    'fecha_modificacion': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+                })
+
+        archivos.sort(key=lambda x: x['fecha_modificacion'], reverse=True)
+
+        return jsonify({"archivos": archivos}), 200
+
+    except Exception as e:
+        logger.error(f"Error al listar archivos: {e}")
+        return jsonify({"error": "Error al listar archivos"}), 500
+
+
 # HEALTH CHECK
 @app.route('/api/health', methods=['GET'])
 def health():
