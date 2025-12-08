@@ -1,6 +1,12 @@
 """
-Módulo de Gestión de Notas Crédito
+Módulo de Gestión de Notas Crédito - VERSIÓN REESTRUCTURADA
 Maneja la aplicación de notas crédito a facturas con persistencia en SQLite
+
+ESTRUCTURA DE BD:
+- facturas: Líneas de facturas válidas con info de notas aplicadas
+- facturas_rechazadas: Facturas que no cumplen reglas de negocio
+- notas_credito: Notas de crédito que cumplen reglas de negocio
+- usuarios: Usuarios del dashboard
 """
 import sqlite3
 import logging
@@ -13,18 +19,18 @@ logger = logging.getLogger(__name__)
 
 class NotasCreditoManager:
     """Gestiona la aplicación de notas crédito a facturas"""
-    
+
     def __init__(self, db_path: str = './data/notas_credito.db'):
         """
         Inicializa el gestor de notas crédito
-        
+
         Args:
             db_path: Ruta de la base de datos SQLite
         """
         self.db_path = db_path
         self._crear_base_datos()
         logger.info(f"NotasCreditoManager inicializado con BD: {db_path}")
-    
+
     def _crear_base_datos(self):
         """Crea las tablas necesarias en la base de datos si no existen"""
         # Crear directorio si no existe
@@ -33,161 +39,216 @@ class NotasCreditoManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Tabla de notas crédito pendientes
-        # IMPORTANTE: Una nota puede tener múltiples líneas (productos)
-        # El constraint UNIQUE es (numero_nota, codigo_producto)
+        # =========================================================================
+        # TABLA FACTURAS
+        # Guarda cada línea de factura válida con toda la información requerida
+        # =========================================================================
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS facturas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- Identificación de la línea
+                numero_linea TEXT NOT NULL,
+                numero_factura TEXT NOT NULL,
+                producto TEXT NOT NULL,
+                codigo_producto TEXT NOT NULL,
+
+                -- Datos del cliente
+                nit_cliente TEXT NOT NULL,
+                nombre_cliente TEXT NOT NULL,
+
+                -- Valores originales
+                cantidad_original REAL NOT NULL,
+                precio_unitario REAL NOT NULL,
+                valor_total REAL NOT NULL,
+
+                -- Información de nota aplicada
+                nota_aplicada INTEGER DEFAULT 0,
+                numero_nota_aplicada TEXT,
+                descuento_cantidad REAL DEFAULT 0,
+                descuento_valor REAL DEFAULT 0,
+                cantidad_restante REAL,
+                valor_restante REAL,
+
+                -- Metadata
+                tipo_inventario TEXT,
+                fecha_factura DATE NOT NULL,
+                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_proceso DATE,
+                estado TEXT DEFAULT 'PROCESADA',
+
+                UNIQUE(numero_factura, codigo_producto, fecha_proceso)
+            )
+        ''')
+
+        # Índices para facturas
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_linea ON facturas(numero_linea)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_producto ON facturas(codigo_producto)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_nota ON facturas(nota_aplicada)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
+
+        # =========================================================================
+        # TABLA FACTURAS_RECHAZADAS
+        # Facturas que no cumplen con las reglas de negocio
+        # =========================================================================
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS facturas_rechazadas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero_factura TEXT NOT NULL,
+                numero_linea TEXT,
+                codigo_producto TEXT,
+                producto TEXT,
+                nit_cliente TEXT,
+                nombre_cliente TEXT,
+                cantidad REAL,
+                valor_total REAL,
+                tipo_inventario TEXT,
+                razon_rechazo TEXT NOT NULL,
+                fecha_factura DATE,
+                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rechazadas_fecha ON facturas_rechazadas(fecha_factura)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rechazadas_razon ON facturas_rechazadas(razon_rechazo)')
+
+        # =========================================================================
+        # TABLA NOTAS_CREDITO
+        # Notas de crédito que cumplen con las reglas de negocio
+        # =========================================================================
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS notas_credito (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero_nota TEXT NOT NULL,
                 fecha_nota DATE NOT NULL,
+
+                -- Cliente
                 nit_cliente TEXT NOT NULL,
                 nombre_cliente TEXT NOT NULL,
+
+                -- Producto
                 codigo_producto TEXT NOT NULL,
                 nombre_producto TEXT NOT NULL,
                 tipo_inventario TEXT,
+
+                -- Valores originales
                 valor_total REAL NOT NULL,
                 cantidad REAL NOT NULL,
+
+                -- Saldos pendientes
                 saldo_pendiente REAL NOT NULL,
                 cantidad_pendiente REAL NOT NULL,
-                causal_devolucion TEXT,
+
+                -- Estado y tracking
                 estado TEXT DEFAULT 'PENDIENTE',
+                causal_devolucion TEXT,
                 fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 fecha_aplicacion_completa TIMESTAMP NULL,
+
                 UNIQUE(numero_nota, codigo_producto)
             )
         ''')
-        
-        # Tabla de aplicaciones de notas crédito
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notas_cliente ON notas_credito(nit_cliente)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notas_producto ON notas_credito(codigo_producto)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notas_estado ON notas_credito(estado)')
+
+        # =========================================================================
+        # TABLA APLICACIONES_NOTAS
+        # Historial de aplicaciones de notas a facturas
+        # =========================================================================
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS aplicaciones_notas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 id_nota INTEGER NOT NULL,
                 numero_nota TEXT NOT NULL,
                 numero_factura TEXT NOT NULL,
+                numero_linea TEXT,
                 fecha_factura DATE NOT NULL,
                 nit_cliente TEXT NOT NULL,
                 codigo_producto TEXT NOT NULL,
-                valor_aplicado REAL NOT NULL,
                 cantidad_aplicada REAL NOT NULL,
+                valor_aplicado REAL NOT NULL,
                 fecha_aplicacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (id_nota) REFERENCES notas_credito(id)
             )
         ''')
-        
-        # Tabla de facturas válidas (las que pasan las reglas de negocio)
-        # NOTA: Esta tabla usa nombres simplificados diferentes a los del Excel transformado
+
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_aplicaciones_nota ON aplicaciones_notas(numero_nota)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_aplicaciones_factura ON aplicaciones_notas(numero_factura)')
+
+        # =========================================================================
+        # TABLA USUARIOS
+        # Usuarios del dashboard
+        # =========================================================================
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS facturas (
+            CREATE TABLE IF NOT EXISTS usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero_factura TEXT NOT NULL,
-                fecha_factura DATE NOT NULL,
-                nit_cliente TEXT NOT NULL,
-                nombre_cliente TEXT NOT NULL,
-                codigo_producto TEXT NOT NULL,
-                nombre_producto TEXT NOT NULL,
-                tipo_inventario TEXT,
-                valor_total REAL NOT NULL,
-                cantidad REAL NOT NULL,
-                valor_unitario REAL,
-                estado TEXT DEFAULT 'PROCESADA',
-                tiene_nota_credito INTEGER DEFAULT 0,
-                numero_nota_aplicada TEXT,
-                valor_nota_aplicada REAL DEFAULT 0,
-                cantidad_nota_aplicada REAL DEFAULT 0,
-                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                fecha_proceso DATE,
-                UNIQUE(numero_factura, codigo_producto, fecha_proceso)
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                email TEXT,
+                rol TEXT DEFAULT 'viewer',
+                activo INTEGER DEFAULT 1,
+                intentos_fallidos INTEGER DEFAULT 0,
+                bloqueado_hasta TIMESTAMP NULL,
+                ultimo_acceso TIMESTAMP NULL,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Índices para mejorar rendimiento en tabla facturas
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha ON facturas(fecha_factura)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_cliente ON facturas(nit_cliente)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_numero ON facturas(numero_factura)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_notas ON facturas(tiene_nota_credito)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_facturas_fecha_proceso ON facturas(fecha_proceso)')
+        # Tablas de soporte para autenticación
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sesiones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_jti TEXT NOT NULL UNIQUE,
+                refresh_jti TEXT UNIQUE,
+                ip_address TEXT,
+                user_agent TEXT,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_expiracion TIMESTAMP NOT NULL,
+                activa INTEGER DEFAULT 1,
+                FOREIGN KEY (user_id) REFERENCES usuarios(id)
+            )
+        ''')
 
-        # Tabla de facturas rechazadas (para auditoría y detección de nuevos tipos)
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS facturas_rechazadas (
+            CREATE TABLE IF NOT EXISTS intentos_login (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero_factura TEXT NOT NULL,
-                fecha_factura DATE NOT NULL,
-                nit_cliente TEXT NOT NULL,
-                nombre_cliente TEXT NOT NULL,
-                codigo_producto TEXT NOT NULL,
-                nombre_producto TEXT NOT NULL,
-                tipo_inventario TEXT NOT NULL,
-                valor_total REAL NOT NULL,
-                razon_rechazo TEXT NOT NULL,
-                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                username TEXT NOT NULL,
+                ip_address TEXT,
+                exitoso INTEGER NOT NULL,
+                razon_fallo TEXT,
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
-        # NUEVA: Tabla de tipos de inventario detectados
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tipos_inventario_detectados (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                codigo_tipo TEXT NOT NULL UNIQUE,
-                descripcion TEXT,
-                primera_deteccion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                ultima_deteccion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                total_facturas INTEGER DEFAULT 1,
-                es_excluido INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # Índices para mejorar rendimiento
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_notas_cliente_producto 
-            ON notas_credito(nit_cliente, codigo_producto, estado)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_aplicaciones_nota 
-            ON aplicaciones_notas(numero_nota)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_rechazadas_fecha 
-            ON facturas_rechazadas(fecha_factura)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_rechazadas_tipo 
-            ON facturas_rechazadas(tipo_inventario)
-        ''')
-        
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_tipos_codigo 
-            ON tipos_inventario_detectados(codigo_tipo)
-        ''')
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.info("Base de datos inicializada correctamente con todas las tablas")
-    
+
     def registrar_nota_credito(self, nota: Dict) -> bool:
         """
         Registra una nueva nota crédito en la base de datos
         FILTRA notas que tienen cantidad pero valor cero
-        
+
         Args:
             nota: Datos de la nota crédito desde la API
-            
+
         Returns:
             True si se registró correctamente, False si ya existía o fue filtrada
         """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Extraer datos de la nota
             numero_nota = f"{nota.get('f_prefijo', '')}{nota.get('f_nrodocto', '')}"
             fecha_nota_str = nota.get('f_fecha', '')
-            
+
             # Parsear fecha
             fecha_nota = None
             if fecha_nota_str:
@@ -197,48 +258,39 @@ class NotasCreditoManager:
                     fecha_nota = datetime.now().date()
             else:
                 fecha_nota = datetime.now().date()
-            
+
             nit_cliente = str(nota.get('f_cliente_desp', '')).strip()
             nombre_cliente = str(nota.get('f_cliente_fact_razon_soc', '')).strip()
-            
-            # IMPORTANTE: f_cod_item no siempre está disponible en la API
-            codigo_producto_raw = nota.get('f_cod_item') or nota.get('f_desc_item', '')
-            codigo_producto = str(codigo_producto_raw).strip()
-            
+            codigo_producto = str(nota.get('f_cod_item') or nota.get('f_desc_item', '')).strip()
             nombre_producto = str(nota.get('f_desc_item', '')).strip()
             valor_total = float(nota.get('f_valor_subtotal_local', 0.0) or 0.0)
             cantidad = float(nota.get('f_cant_base', 0.0) or 0.0)
-            
-            # ⚠️ FILTRO CRÍTICO: Rechazar notas con cantidad pero sin valor
+            tipo_inventario = str(nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or '').strip().upper()
+            causal_devolucion = str(nota.get('f_notas_causal_dev', '') or '').strip() or None
+
+            # FILTRO: Rechazar notas con cantidad pero sin valor
             if cantidad != 0 and valor_total == 0:
-                logger.warning(f"❌ Nota crédito {numero_nota} rechazada: tiene cantidad ({cantidad}) pero valor cero")
+                logger.warning(f"Nota crédito {numero_nota} rechazada: cantidad ({cantidad}) sin valor")
                 conn.close()
                 return False
-            
-            # Extraer tipo de inventario
-            tipo_inventario_raw = nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or ''
-            tipo_inventario = str(tipo_inventario_raw).strip().upper()
-            
-            # Extraer causal de devolución
-            causal_devolucion = str(nota.get('f_notas_causal_dev', '') or '').strip() or None
-            
+
             # Validación: código de producto no puede estar vacío
             if not codigo_producto:
-                logger.error(f"⚠️ Nota crédito {numero_nota} sin código de producto - Rechazada")
+                logger.error(f"Nota crédito {numero_nota} sin código de producto - Rechazada")
                 conn.close()
                 return False
-            
+
             # Verificar si ya existe
             cursor.execute(
                 'SELECT id FROM notas_credito WHERE numero_nota = ? AND codigo_producto = ?',
                 (numero_nota, codigo_producto)
             )
-            
+
             if cursor.fetchone():
-                logger.info(f"Nota crédito {numero_nota} - Producto {codigo_producto[:30]}... ya existe en la BD")
+                logger.info(f"Nota crédito {numero_nota} - Producto {codigo_producto[:30]}... ya existe")
                 conn.close()
                 return False
-            
+
             # Insertar nota crédito
             cursor.execute('''
                 INSERT INTO notas_credito
@@ -249,490 +301,25 @@ class NotasCreditoManager:
             ''', (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
                   codigo_producto, nombre_producto, tipo_inventario, valor_total, cantidad,
                   valor_total, cantidad, causal_devolucion))
-            
+
             conn.commit()
             conn.close()
-            
-            logger.info(f"✅ Nota crédito registrada: {numero_nota} - Cliente: {nit_cliente} - "
-                       f"Producto: {codigo_producto[:30]}... - Valor: ${valor_total:,.2f} - Tipo: {tipo_inventario}")
-            
+
+            logger.info(f"Nota crédito registrada: {numero_nota} - Producto: {codigo_producto[:30]}... - "
+                       f"Valor: ${valor_total:,.2f} - Cantidad: {cantidad}")
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Error al registrar nota crédito: {e}")
             return False
-    
-    def obtener_notas_pendientes(self, nit_cliente: str, codigo_producto: str) -> List[Dict]:
-        """
-        Obtiene todas las notas crédito pendientes para un cliente y producto específico
-        
-        Args:
-            nit_cliente: NIT del cliente
-            codigo_producto: Código del producto
-            
-        Returns:
-            Lista de notas crédito pendientes
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT * FROM notas_credito
-                WHERE nit_cliente = ? 
-                AND codigo_producto = ?
-                AND estado = 'PENDIENTE'
-                AND saldo_pendiente > 0
-                ORDER BY fecha_nota ASC
-            ''', (nit_cliente, codigo_producto))
-            
-            notas = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            
-            return notas
-            
-        except Exception as e:
-            logger.error(f"Error al obtener notas pendientes: {e}")
-            return []
-    
-    def aplicar_nota_a_factura(self, nota: Dict, factura: Dict) -> Optional[Dict]:
-        """
-        Aplica una nota crédito a una factura si cumple las condiciones
-        
-        Args:
-            nota: Datos de la nota crédito (desde BD)
-            factura: Datos de la factura (transformada por ExcelProcessor)
-            
-        Returns:
-            Diccionario con información de la aplicación o None si no se pudo aplicar
-        """
-        try:
-            # ============================================================
-            # 1. VALIDAR QUE CLIENTE Y PRODUCTO COINCIDAN
-            # ============================================================
-            if nota['nit_cliente'] != factura['nit_comprador']:
-                logger.debug(f"Nota {nota['numero_nota']} no aplica a factura {factura['numero_factura']}: "
-                            f"NIT diferente ({nota['nit_cliente']} vs {factura['nit_comprador']})")
-                return None
-            
-            if nota['codigo_producto'] != factura.get('codigo_producto_api', ''):
-                logger.debug(f"Nota {nota['numero_nota']} no aplica a factura {factura['numero_factura']}: "
-                            f"Producto diferente ({nota['codigo_producto']} vs {factura.get('codigo_producto_api', '')})")
-                return None
-            
-            # ============================================================
-            # 2. CALCULAR CUÁNTO SE PUEDE APLICAR
-            # ============================================================
-            valor_factura = abs(factura['valor_total'])
-            cantidad_factura = abs(factura['cantidad_original'])
-            
-            saldo_nota = abs(nota['saldo_pendiente'])
-            cantidad_nota = abs(nota['cantidad_pendiente'])
-            
-            # Validar que haya saldo disponible
-            if saldo_nota <= 0.01 or cantidad_nota <= 0:
-                logger.debug(f"Nota {nota['numero_nota']} sin saldo disponible")
-                return None
-            
-            # Determinar el monto a aplicar (el menor entre saldo nota y valor factura)
-            valor_aplicar = min(saldo_nota, valor_factura)
-            
-            # Calcular proporción de cantidad
-            if valor_factura > 0:
-                proporcion = valor_aplicar / valor_factura
-                cantidad_aplicar = min(cantidad_nota, cantidad_factura * proporcion)
-            else:
-                cantidad_aplicar = 0
-            
-            # Validar que no supere los límites
-            if valor_aplicar <= 0 or cantidad_aplicar <= 0:
-                logger.debug(f"Nota {nota['numero_nota']}: valores calculados inválidos "
-                            f"(valor: {valor_aplicar}, cantidad: {cantidad_aplicar})")
-                return None
-            
-            # ============================================================
-            # 3. REGISTRAR APLICACIÓN EN LA BD
-            # ============================================================
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Insertar aplicación
-            cursor.execute('''
-                INSERT INTO aplicaciones_notas
-                (id_nota, numero_nota, numero_factura, fecha_factura,
-                 nit_cliente, codigo_producto, valor_aplicado, cantidad_aplicada)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (nota['id'], nota['numero_nota'], factura['numero_factura'],
-                  factura['fecha_factura'], nota['nit_cliente'], 
-                  nota['codigo_producto'], -valor_aplicar, -cantidad_aplicar))  # Negativo porque son créditos
-            
-            # ============================================================
-            # 4. ACTUALIZAR SALDOS DE LA NOTA
-            # ============================================================
-            nuevo_saldo = saldo_nota - valor_aplicar
-            nueva_cantidad = cantidad_nota - cantidad_aplicar
-            
-            # Determinar nuevo estado
-            if nuevo_saldo <= 0.01:
-                estado = 'APLICADA'
-                fecha_aplicacion_completa = datetime.now()
-            elif nuevo_saldo < nota['valor_total']:
-                estado = 'PARCIAL'
-                fecha_aplicacion_completa = None
-            else:
-                estado = 'PENDIENTE'
-                fecha_aplicacion_completa = None
-            
-            cursor.execute('''
-                UPDATE notas_credito
-                SET saldo_pendiente = ?,
-                    cantidad_pendiente = ?,
-                    estado = ?,
-                    fecha_aplicacion_completa = ?
-                WHERE id = ?
-            ''', (-nuevo_saldo if nuevo_saldo > 0 else 0,  # Negativo porque es crédito
-                  -nueva_cantidad if nueva_cantidad > 0 else 0,
-                  estado, 
-                  fecha_aplicacion_completa,
-                  nota['id']))
-            
-            conn.commit()
-            conn.close()
-            
-            # ============================================================
-            # 5. ACTUALIZAR LA FACTURA CON LA INFORMACIÓN DE LA NOTA
-            # ============================================================
-            self.actualizar_factura_con_nota(
-                factura['numero_factura'],
-                factura.get('codigo_producto_api', ''),
-                nota['numero_nota'],
-                -valor_aplicar,  # Negativo porque es crédito
-                -cantidad_aplicar
-            )
-            
-            # ============================================================
-            # 6. LOG Y RETORNO
-            # ============================================================
-            logger.info(f"✅ Nota {nota['numero_nota']} aplicada a factura {factura['numero_factura']}: "
-                       f"${valor_aplicar:,.2f} de ${saldo_nota:,.2f} | "
-                       f"Estado: {estado} | Saldo restante: ${nuevo_saldo:,.2f}")
-            
-            return {
-                'numero_nota': nota['numero_nota'],
-                'numero_factura': factura['numero_factura'],
-                'valor_aplicado': -valor_aplicar,  # Negativo para créditos
-                'cantidad_aplicada': -cantidad_aplicar,
-                'saldo_restante': -nuevo_saldo if nuevo_saldo > 0 else 0,
-                'estado': estado
-            }
-            
-        except Exception as e:
-            logger.error(f"Error al aplicar nota {nota.get('numero_nota', 'N/A')} "
-                        f"a factura {factura.get('numero_factura', 'N/A')}: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-    
-    def procesar_notas_para_facturas(self, facturas: List[Dict]) -> List[Dict]:
-        """
-        Procesa la aplicación de notas crédito pendientes a un lote de facturas
-        
-        Args:
-            facturas: Lista de facturas transformadas
-            
-        Returns:
-            Lista de aplicaciones realizadas
-        """
-        aplicaciones = []
-        
-        for factura in facturas:
-            # Obtener notas pendientes para este cliente y producto
-            notas_pendientes = self.obtener_notas_pendientes(
-                factura['nit_comprador'],
-                factura.get('codigo_producto_api', '')
-            )
-            
-            # Intentar aplicar cada nota pendiente
-            for nota in notas_pendientes:
-                aplicacion = self.aplicar_nota_a_factura(nota, factura)
-                
-                if aplicacion:
-                    aplicaciones.append(aplicacion)
-                    
-                    # Si la nota se aplicó completamente, pasar a la siguiente nota
-                    if aplicacion['estado'] == 'APLICADA':
-                        logger.info(f"Nota {aplicacion['numero_nota']} aplicada completamente")
-        
-        logger.info(f"Se realizaron {len(aplicaciones)} aplicaciones de notas crédito")
-        return aplicaciones
-    
-    def obtener_resumen_notas(self) -> Dict:
-        """
-        Obtiene un resumen del estado de las notas crédito
-        
-        Returns:
-            Diccionario con estadísticas de notas crédito
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Total de notas pendientes
-            cursor.execute('''
-                SELECT COUNT(*), SUM(saldo_pendiente)
-                FROM notas_credito
-                WHERE estado = 'PENDIENTE'
-            ''')
-            pendientes, saldo_pendiente = cursor.fetchone()
-            
-            # Total de notas aplicadas
-            cursor.execute('''
-                SELECT COUNT(*)
-                FROM notas_credito
-                WHERE estado = 'APLICADA'
-            ''')
-            aplicadas = cursor.fetchone()[0]
-            
-            # Total de aplicaciones realizadas
-            cursor.execute('''
-                SELECT COUNT(*), SUM(valor_aplicado)
-                FROM aplicaciones_notas
-            ''')
-            num_aplicaciones, total_aplicado = cursor.fetchone()
-            
-            conn.close()
-            
-            return {
-                'notas_pendientes': pendientes or 0,
-                'saldo_pendiente_total': saldo_pendiente or 0.0,
-                'notas_aplicadas': aplicadas or 0,
-                'total_aplicaciones': num_aplicaciones or 0,
-                'monto_total_aplicado': total_aplicado or 0.0
-            }
-            
-        except Exception as e:
-            logger.error(f"Error al obtener resumen de notas: {e}")
-            return {}
-    
-    def obtener_historial_nota(self, numero_nota: str) -> List[Dict]:
-        """
-        Obtiene el historial de aplicaciones de una nota específica
-        
-        Args:
-            numero_nota: Número de la nota crédito
-            
-        Returns:
-            Lista de aplicaciones realizadas
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT * FROM aplicaciones_notas
-                WHERE numero_nota = ?
-                ORDER BY fecha_aplicacion DESC
-            ''', (numero_nota,))
-            
-            aplicaciones = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            
-            return aplicaciones
-            
-        except Exception as e:
-            logger.error(f"Error al obtener historial de nota: {e}")
-            return []
-    
-    def registrar_factura_rechazada(self, factura: Dict, razon_rechazo: str) -> bool:
-        """
-        Registra una factura rechazada en la base de datos para auditoría
-        
-        Args:
-            factura: Datos de la factura desde la API
-            razon_rechazo: Razón por la cual fue rechazada
-            
-        Returns:
-            True si se registró correctamente
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Extraer datos
-            prefijo = str(factura.get('f_prefijo', '')).strip()
-            nrodocto = factura.get('f_nrodocto', '')
-            numero_factura = f"{prefijo}{nrodocto}"
-            
-            fecha_str = factura.get('f_fecha', '')
-            fecha_factura = None
-            if fecha_str:
-                try:
-                    fecha_factura = datetime.fromisoformat(str(fecha_str).replace('T00:00:00', '')).date()
-                except:
-                    fecha_factura = datetime.now().date()
-            else:
-                fecha_factura = datetime.now().date()
-            
-            nit_cliente = str(factura.get('f_cliente_desp', '')).strip()
-            nombre_cliente = str(factura.get('f_cliente_fact_razon_soc', '')).strip()
-            codigo_producto = str(factura.get('f_cod_item', '')).strip()
-            nombre_producto = str(factura.get('f_desc_item', '')).strip()
-            tipo_inventario = str(factura.get('f_cod_tipo_inv', '')).strip()
-            valor_total = float(factura.get('f_valor_subtotal_local', 0.0) or 0.0)
-            
-            # Insertar factura rechazada
-            cursor.execute('''
-                INSERT INTO facturas_rechazadas
-                (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                 codigo_producto, nombre_producto, tipo_inventario, valor_total, razon_rechazo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                  codigo_producto, nombre_producto, tipo_inventario, valor_total, razon_rechazo))
-            
-            conn.commit()
-            conn.close()
-            
-            logger.debug(f"Factura rechazada registrada: {numero_factura} - {razon_rechazo}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error al registrar factura rechazada: {e}")
-            return False
 
-
-    def actualizar_factura_con_nota(self, numero_factura: str, codigo_producto: str,
-                                    numero_nota: str, valor_aplicado: float,
-                                    cantidad_aplicada: float) -> bool:
+    def registrar_factura(self, factura_transformada: Dict) -> bool:
         """
-        Actualiza una factura marcándola con nota de crédito aplicada
+        Registra una línea de factura en la base de datos
 
         Args:
-            numero_factura: Número de factura
-            codigo_producto: Código del producto
-            numero_nota: Número de la nota aplicada
-            valor_aplicado: Valor de la nota aplicada
-            cantidad_aplicada: Cantidad de la nota aplicada
-
-        Returns:
-            True si se actualizó correctamente
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            cursor.execute('''
-                UPDATE facturas
-                SET tiene_nota_credito = 1,
-                    numero_nota_aplicada = ?,
-                    valor_nota_aplicada = valor_nota_aplicada + ?,
-                    cantidad_nota_aplicada = cantidad_nota_aplicada + ?
-                WHERE numero_factura = ? AND codigo_producto = ?
-            ''', (numero_nota, valor_aplicado, cantidad_aplicada, numero_factura, codigo_producto))
-
-            conn.commit()
-            conn.close()
-
-            logger.debug(f"Factura {numero_factura} actualizada con nota {numero_nota}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error al actualizar factura con nota: {e}")
-            return False
-
-    def registrar_tipo_inventario(self, codigo_tipo: str, descripcion: str = None, es_excluido: bool = False) -> bool:
-        """
-        Registra o actualiza un tipo de inventario detectado
-        
-        Args:
-            codigo_tipo: Código del tipo de inventario
-            descripcion: Descripción del tipo (opcional)
-            es_excluido: Si es un tipo excluido
-            
-        Returns:
-            True si se registró/actualizó correctamente
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Verificar si existe
-            cursor.execute(
-                'SELECT id, total_facturas FROM tipos_inventario_detectados WHERE codigo_tipo = ?',
-                (codigo_tipo,)
-            )
-            
-            resultado = cursor.fetchone()
-            
-            if resultado:
-                # Actualizar existente
-                id_tipo, total_actual = resultado
-                cursor.execute('''
-                    UPDATE tipos_inventario_detectados
-                    SET ultima_deteccion = CURRENT_TIMESTAMP,
-                        total_facturas = ?,
-                        descripcion = COALESCE(?, descripcion)
-                    WHERE id = ?
-                ''', (total_actual + 1, descripcion, id_tipo))
-            else:
-                # Insertar nuevo
-                cursor.execute('''
-                    INSERT INTO tipos_inventario_detectados
-                    (codigo_tipo, descripcion, es_excluido)
-                    VALUES (?, ?, ?)
-                ''', (codigo_tipo, descripcion, 1 if es_excluido else 0))
-                
-                logger.info(f"Nuevo tipo de inventario detectado: {codigo_tipo}")
-            
-            conn.commit()
-            conn.close()
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error al registrar tipo de inventario: {e}")
-            return False
-    
-    def obtener_tipos_inventario_nuevos(self, dias: int = 30) -> List[Dict]:
-        """
-        Obtiene tipos de inventario detectados recientemente que no están en la lista de excluidos
-        
-        Args:
-            dias: Número de días hacia atrás para considerar "nuevo"
-            
-        Returns:
-            Lista de tipos de inventario nuevos
-        """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            fecha_limite = (datetime.now() - timedelta(days=dias)).strftime('%Y-%m-%d')
-            
-            cursor.execute('''
-                SELECT * FROM tipos_inventario_detectados
-                WHERE primera_deteccion >= ?
-                AND es_excluido = 0
-                ORDER BY total_facturas DESC, primera_deteccion DESC
-            ''', (fecha_limite,))
-            
-            tipos = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            
-            return tipos
-            
-        except Exception as e:
-            logger.error(f"Error al obtener tipos nuevos: {e}")
-            return []
-    
-    def registrar_factura_completa(self, factura_transformada: Dict) -> bool:
-        """
-        Registra una factura transformada mapeando sus campos al esquema simplificado de la BD
-
-        Args:
-            factura_transformada: Factura ya procesada por ExcelProcessor.transformar_factura()
+            factura_transformada: Factura ya procesada por ExcelProcessor
 
         Returns:
             True si se registró correctamente
@@ -741,7 +328,7 @@ class NotasCreditoManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Parsear fecha_factura (puede venir como date o datetime)
+            # Parsear fecha
             fecha_factura = factura_transformada.get('fecha_factura')
             if isinstance(fecha_factura, str):
                 try:
@@ -753,107 +340,467 @@ class NotasCreditoManager:
             else:
                 fecha_factura = datetime.now().date()
 
-            # Mapear campos del Excel transformado al esquema simplificado de la BD
+            # Extraer datos
             numero_factura = str(factura_transformada.get('numero_factura', '')).strip()
+            numero_linea = numero_factura  # La línea es el prefijo+número (ej: fem2020)
+            codigo_producto = str(factura_transformada.get('codigo_producto_api', '')).strip()
+            producto = str(factura_transformada.get('nombre_producto', '')).strip()
             nit_cliente = str(factura_transformada.get('nit_comprador', '')).strip()
             nombre_cliente = str(factura_transformada.get('nombre_comprador', '')).strip()
-            codigo_producto = str(factura_transformada.get('codigo_producto_api', '')).strip()
-            nombre_producto = str(factura_transformada.get('nombre_producto', '')).strip()
-            tipo_inventario = str(factura_transformada.get('descripcion', '')).strip()
+            cantidad_original = float(factura_transformada.get('cantidad', 0.0) or 0.0)
             valor_total = float(factura_transformada.get('valor_total', 0.0) or 0.0)
-            cantidad = float(factura_transformada.get('cantidad', 0.0) or 0.0)
-            valor_unitario = float(factura_transformada.get('precio_unitario', 0.0) or 0.0)
-            fecha_proceso = fecha_factura  # Por defecto, fecha_proceso = fecha_factura
+            precio_unitario = float(factura_transformada.get('precio_unitario', 0.0) or 0.0)
+            tipo_inventario = str(factura_transformada.get('descripcion', '')).strip()
+            fecha_proceso = fecha_factura
 
             cursor.execute('''
                 INSERT INTO facturas (
-                    numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                    codigo_producto, nombre_producto, tipo_inventario,
-                    valor_total, cantidad, valor_unitario, fecha_proceso, estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
+                    numero_linea, numero_factura, producto, codigo_producto,
+                    nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
+                    valor_total, cantidad_restante, valor_restante, tipo_inventario,
+                    fecha_factura, fecha_proceso, estado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESADA')
                 ON CONFLICT(numero_factura, codigo_producto, fecha_proceso) DO UPDATE SET
-                    fecha_factura = excluded.fecha_factura,
+                    cantidad_original = excluded.cantidad_original,
                     valor_total = excluded.valor_total,
-                    cantidad = excluded.cantidad,
-                    valor_unitario = excluded.valor_unitario
+                    precio_unitario = excluded.precio_unitario
             ''', (
-                numero_factura, fecha_factura, nit_cliente, nombre_cliente,
-                codigo_producto, nombre_producto, tipo_inventario,
-                valor_total, cantidad, valor_unitario, fecha_proceso
+                numero_linea, numero_factura, producto, codigo_producto,
+                nit_cliente, nombre_cliente, cantidad_original, precio_unitario,
+                valor_total, cantidad_original, valor_total, tipo_inventario,
+                fecha_factura, fecha_proceso
             ))
 
             conn.commit()
             conn.close()
 
-            logger.debug(f"Factura registrada: {numero_factura} - {codigo_producto}")
+            logger.debug(f"Factura registrada: {numero_linea} - {codigo_producto}")
             return True
 
         except Exception as e:
-            logger.error(f"Error al registrar factura completa: {e}")
+            logger.error(f"Error al registrar factura: {e}")
             import traceback
             traceback.print_exc()
             return False
-    def obtener_resumen_rechazos(self, dias: int = 7) -> Dict:
+
+    def registrar_factura_rechazada(self, factura: Dict, razon_rechazo: str) -> bool:
         """
-        Obtiene un resumen de facturas rechazadas en los últimos días
-        
+        Registra una factura rechazada en la base de datos
+
         Args:
-            dias: Número de días hacia atrás
-            
+            factura: Datos de la factura desde la API
+            razon_rechazo: Razón por la cual fue rechazada
+
         Returns:
-            Diccionario con estadísticas de rechazos
+            True si se registró correctamente
         """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
+            prefijo = str(factura.get('f_prefijo', '')).strip()
+            nrodocto = factura.get('f_nrodocto', '')
+            numero_factura = f"{prefijo}{nrodocto}"
+            numero_linea = numero_factura
+
+            fecha_str = factura.get('f_fecha', '')
+            fecha_factura = None
+            if fecha_str:
+                try:
+                    fecha_factura = datetime.fromisoformat(str(fecha_str).replace('T00:00:00', '')).date()
+                except:
+                    fecha_factura = datetime.now().date()
+
+            codigo_producto = str(factura.get('f_cod_item', '')).strip()
+            producto = str(factura.get('f_desc_item', '')).strip()
+            nit_cliente = str(factura.get('f_cliente_desp', '')).strip()
+            nombre_cliente = str(factura.get('f_cliente_fact_razon_soc', '')).strip()
+            cantidad = float(factura.get('f_cant_base', 0.0) or 0.0)
+            valor_total = float(factura.get('f_valor_subtotal_local', 0.0) or 0.0)
+            tipo_inventario = str(factura.get('f_cod_tipo_inv', '')).strip()
+
+            cursor.execute('''
+                INSERT INTO facturas_rechazadas
+                (numero_factura, numero_linea, codigo_producto, producto,
+                 nit_cliente, nombre_cliente, cantidad, valor_total,
+                 tipo_inventario, razon_rechazo, fecha_factura)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (numero_factura, numero_linea, codigo_producto, producto,
+                  nit_cliente, nombre_cliente, cantidad, valor_total,
+                  tipo_inventario, razon_rechazo, fecha_factura))
+
+            conn.commit()
+            conn.close()
+
+            logger.debug(f"Factura rechazada registrada: {numero_factura} - {razon_rechazo}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error al registrar factura rechazada: {e}")
+            return False
+
+    def obtener_notas_pendientes(self, nit_cliente: str, codigo_producto: str) -> List[Dict]:
+        """
+        Obtiene notas crédito pendientes para un cliente y producto
+
+        Args:
+            nit_cliente: NIT del cliente
+            codigo_producto: Código del producto
+
+        Returns:
+            Lista de notas crédito pendientes
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT * FROM notas_credito
+                WHERE nit_cliente = ?
+                AND codigo_producto = ?
+                AND estado = 'PENDIENTE'
+                AND saldo_pendiente > 0
+                ORDER BY fecha_nota ASC
+            ''', (nit_cliente, codigo_producto))
+
+            notas = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+
+            return notas
+
+        except Exception as e:
+            logger.error(f"Error al obtener notas pendientes: {e}")
+            return []
+
+    def aplicar_nota_a_factura(self, nota: Dict, factura: Dict) -> Optional[Dict]:
+        """
+        Aplica una nota crédito a una factura si cumple las condiciones:
+        - La cantidad de la nota debe ser <= cantidad de la línea
+        - El valor de la nota debe ser <= valor de la línea
+
+        CASO ESPECIAL: Si nota tiene cantidad 24 y línea 25, valor línea 100.000
+                       pero valor nota 101.000 -> NO SE PUEDE APLICAR
+
+        Args:
+            nota: Datos de la nota crédito (desde BD)
+            factura: Datos de la factura (transformada)
+
+        Returns:
+            Diccionario con información de la aplicación o None si no se pudo aplicar
+        """
+        try:
+            # Validar cliente y producto
+            if nota['nit_cliente'] != factura['nit_comprador']:
+                return None
+
+            if nota['codigo_producto'] != factura.get('codigo_producto_api', ''):
+                return None
+
+            # Obtener valores
+            cantidad_factura = abs(factura.get('cantidad_original', factura.get('cantidad', 0)))
+            valor_factura = abs(factura['valor_total'])
+
+            cantidad_nota = abs(nota['cantidad_pendiente'])
+            valor_nota = abs(nota['saldo_pendiente'])
+
+            # =========================================================================
+            # VALIDACIÓN CRÍTICA: El valor de la nota NO puede superar el valor de la línea
+            # Esto previene el caso extraño donde nota tiene valor mayor a la factura
+            # =========================================================================
+            if valor_nota > valor_factura:
+                logger.warning(
+                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {factura['numero_factura']}: "
+                    f"Valor nota (${valor_nota:,.2f}) > Valor factura (${valor_factura:,.2f})"
+                )
+                return None
+
+            # La cantidad de la nota no puede superar la cantidad de la factura
+            if cantidad_nota > cantidad_factura:
+                logger.warning(
+                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {factura['numero_factura']}: "
+                    f"Cantidad nota ({cantidad_nota}) > Cantidad factura ({cantidad_factura})"
+                )
+                return None
+
+            # Si pasa las validaciones, aplicar la nota
+            cantidad_aplicar = cantidad_nota
+            valor_aplicar = valor_nota
+
+            # Registrar aplicación
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            numero_linea = factura.get('numero_factura', '')
+
+            cursor.execute('''
+                INSERT INTO aplicaciones_notas
+                (id_nota, numero_nota, numero_factura, numero_linea, fecha_factura,
+                 nit_cliente, codigo_producto, cantidad_aplicada, valor_aplicado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (nota['id'], nota['numero_nota'], factura['numero_factura'], numero_linea,
+                  factura['fecha_factura'], nota['nit_cliente'],
+                  nota['codigo_producto'], cantidad_aplicar, valor_aplicar))
+
+            # Actualizar saldos de la nota
+            nuevo_saldo = nota['saldo_pendiente'] - valor_aplicar
+            nueva_cantidad = nota['cantidad_pendiente'] - cantidad_aplicar
+
+            # Determinar nuevo estado
+            if nuevo_saldo <= 0.01:
+                estado = 'APLICADA'
+                fecha_aplicacion_completa = datetime.now()
+            else:
+                estado = 'PARCIAL'
+                fecha_aplicacion_completa = None
+
+            cursor.execute('''
+                UPDATE notas_credito
+                SET saldo_pendiente = ?,
+                    cantidad_pendiente = ?,
+                    estado = ?,
+                    fecha_aplicacion_completa = ?
+                WHERE id = ?
+            ''', (max(0, nuevo_saldo), max(0, nueva_cantidad),
+                  estado, fecha_aplicacion_completa, nota['id']))
+
+            # Actualizar la factura con la nota aplicada
+            cantidad_restante = cantidad_factura - cantidad_aplicar
+            valor_restante = valor_factura - valor_aplicar
+
+            cursor.execute('''
+                UPDATE facturas
+                SET nota_aplicada = 1,
+                    numero_nota_aplicada = ?,
+                    descuento_cantidad = descuento_cantidad + ?,
+                    descuento_valor = descuento_valor + ?,
+                    cantidad_restante = ?,
+                    valor_restante = ?
+                WHERE numero_factura = ? AND codigo_producto = ?
+            ''', (nota['numero_nota'], cantidad_aplicar, valor_aplicar,
+                  cantidad_restante, valor_restante,
+                  factura['numero_factura'], factura.get('codigo_producto_api', '')))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(
+                f"Nota {nota['numero_nota']} aplicada a línea {numero_linea}: "
+                f"Cantidad: {cantidad_aplicar} | Valor: ${valor_aplicar:,.2f} | "
+                f"Cantidad restante en línea: {cantidad_restante} | Estado nota: {estado}"
+            )
+
+            return {
+                'numero_nota': nota['numero_nota'],
+                'numero_factura': factura['numero_factura'],
+                'numero_linea': numero_linea,
+                'cantidad_aplicada': cantidad_aplicar,
+                'valor_aplicado': valor_aplicar,
+                'cantidad_restante_factura': cantidad_restante,
+                'valor_restante_factura': valor_restante,
+                'saldo_restante_nota': max(0, nuevo_saldo),
+                'estado_nota': estado
+            }
+
+        except Exception as e:
+            logger.error(f"Error al aplicar nota: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def procesar_notas_para_facturas(self, facturas: List[Dict]) -> List[Dict]:
+        """
+        Procesa la aplicación de notas crédito pendientes a un lote de facturas
+
+        Args:
+            facturas: Lista de facturas transformadas
+
+        Returns:
+            Lista de aplicaciones realizadas
+        """
+        aplicaciones = []
+
+        for factura in facturas:
+            notas_pendientes = self.obtener_notas_pendientes(
+                factura['nit_comprador'],
+                factura.get('codigo_producto_api', '')
+            )
+
+            for nota in notas_pendientes:
+                aplicacion = self.aplicar_nota_a_factura(nota, factura)
+
+                if aplicacion:
+                    aplicaciones.append(aplicacion)
+
+                    if aplicacion['estado_nota'] == 'APLICADA':
+                        logger.info(f"Nota {aplicacion['numero_nota']} aplicada completamente")
+
+        logger.info(f"Se realizaron {len(aplicaciones)} aplicaciones de notas crédito")
+        return aplicaciones
+
+    def obtener_resumen_notas(self) -> Dict:
+        """
+        Obtiene un resumen del estado de las notas crédito
+
+        Returns:
+            Diccionario con estadísticas
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT COUNT(*), SUM(saldo_pendiente)
+                FROM notas_credito WHERE estado = 'PENDIENTE'
+            ''')
+            pendientes, saldo_pendiente = cursor.fetchone()
+
+            cursor.execute('SELECT COUNT(*) FROM notas_credito WHERE estado = "APLICADA"')
+            aplicadas = cursor.fetchone()[0]
+
+            cursor.execute('SELECT COUNT(*), SUM(valor_aplicado) FROM aplicaciones_notas')
+            num_aplicaciones, total_aplicado = cursor.fetchone()
+
+            conn.close()
+
+            return {
+                'notas_pendientes': pendientes or 0,
+                'saldo_pendiente_total': saldo_pendiente or 0.0,
+                'notas_aplicadas': aplicadas or 0,
+                'total_aplicaciones': num_aplicaciones or 0,
+                'monto_total_aplicado': total_aplicado or 0.0
+            }
+
+        except Exception as e:
+            logger.error(f"Error al obtener resumen: {e}")
+            return {}
+
+    def obtener_resumen_facturas(self) -> Dict:
+        """
+        Obtiene un resumen del estado de las facturas
+
+        Returns:
+            Diccionario con estadísticas
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT COUNT(*), SUM(valor_total) FROM facturas')
+            total_validas, valor_total = cursor.fetchone()
+
+            cursor.execute('SELECT COUNT(*) FROM facturas WHERE nota_aplicada = 1')
+            con_notas = cursor.fetchone()[0]
+
+            cursor.execute('SELECT SUM(descuento_valor) FROM facturas WHERE nota_aplicada = 1')
+            total_descontado = cursor.fetchone()[0]
+
+            cursor.execute('SELECT COUNT(*) FROM facturas_rechazadas')
+            total_rechazadas = cursor.fetchone()[0]
+
+            conn.close()
+
+            return {
+                'facturas_validas': total_validas or 0,
+                'valor_total_facturado': valor_total or 0.0,
+                'facturas_con_notas': con_notas or 0,
+                'total_descontado': total_descontado or 0.0,
+                'facturas_rechazadas': total_rechazadas or 0
+            }
+
+        except Exception as e:
+            logger.error(f"Error al obtener resumen facturas: {e}")
+            return {}
+
+    def obtener_historial_nota(self, numero_nota: str) -> List[Dict]:
+        """
+        Obtiene el historial de aplicaciones de una nota específica
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                SELECT * FROM aplicaciones_notas
+                WHERE numero_nota = ?
+                ORDER BY fecha_aplicacion DESC
+            ''', (numero_nota,))
+
+            aplicaciones = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+
+            return aplicaciones
+
+        except Exception as e:
+            logger.error(f"Error al obtener historial: {e}")
+            return []
+
+    def obtener_resumen_rechazos(self, dias: int = 7) -> Dict:
+        """
+        Obtiene un resumen de facturas rechazadas en los últimos días
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
             fecha_limite = (datetime.now() - timedelta(days=dias)).strftime('%Y-%m-%d')
-            
-            # Total de rechazos
+
             cursor.execute('''
                 SELECT COUNT(*), SUM(valor_total)
-                FROM facturas_rechazadas
-                WHERE fecha_registro >= ?
+                FROM facturas_rechazadas WHERE fecha_registro >= ?
             ''', (fecha_limite,))
             total_rechazos, valor_total = cursor.fetchone()
-            
-            # Rechazos por razón
+
             cursor.execute('''
                 SELECT razon_rechazo, COUNT(*), SUM(valor_total)
-                FROM facturas_rechazadas
-                WHERE fecha_registro >= ?
-                GROUP BY razon_rechazo
-                ORDER BY COUNT(*) DESC
+                FROM facturas_rechazadas WHERE fecha_registro >= ?
+                GROUP BY razon_rechazo ORDER BY COUNT(*) DESC
             ''', (fecha_limite,))
             por_razon = [
                 {'razon': row[0], 'cantidad': row[1], 'valor': row[2]}
                 for row in cursor.fetchall()
             ]
-            
-            # Tipos más rechazados
-            cursor.execute('''
-                SELECT tipo_inventario, COUNT(*)
-                FROM facturas_rechazadas
-                WHERE fecha_registro >= ?
-                AND razon_rechazo LIKE '%Tipo de inventario excluido%'
-                GROUP BY tipo_inventario
-                ORDER BY COUNT(*) DESC
-                LIMIT 10
-            ''', (fecha_limite,))
-            tipos_mas_rechazados = [
-                {'tipo': row[0], 'cantidad': row[1]}
-                for row in cursor.fetchall()
-            ]
-            
+
             conn.close()
-            
+
             return {
                 'total_rechazos': total_rechazos or 0,
                 'valor_total_rechazado': valor_total or 0.0,
-                'por_razon': por_razon,
-                'tipos_mas_rechazados': tipos_mas_rechazados
+                'por_razon': por_razon
             }
-            
+
         except Exception as e:
-            logger.error(f"Error al obtener resumen de rechazos: {e}")
+            logger.error(f"Error al obtener resumen rechazos: {e}")
             return {}
+
+    # Alias para compatibilidad con código existente
+    def registrar_factura_completa(self, factura_transformada: Dict) -> bool:
+        """Alias para registrar_factura por compatibilidad"""
+        return self.registrar_factura(factura_transformada)
+
+    def actualizar_factura_con_nota(self, numero_factura: str, codigo_producto: str,
+                                    numero_nota: str, valor_aplicado: float,
+                                    cantidad_aplicada: float) -> bool:
+        """Actualiza una factura marcándola con nota de crédito aplicada - Compatibilidad"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                UPDATE facturas
+                SET nota_aplicada = 1,
+                    numero_nota_aplicada = ?,
+                    descuento_valor = descuento_valor + ?,
+                    descuento_cantidad = descuento_cantidad + ?
+                WHERE numero_factura = ? AND codigo_producto = ?
+            ''', (numero_nota, abs(valor_aplicado), abs(cantidad_aplicada),
+                  numero_factura, codigo_producto))
+
+            conn.commit()
+            conn.close()
+            return True
+
+        except Exception as e:
+            logger.error(f"Error al actualizar factura con nota: {e}")
+            return False
