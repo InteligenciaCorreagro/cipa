@@ -185,7 +185,8 @@ class ExcelProcessor:
             'um_base': um_base,
             'valor_total': valor_total,
             'codigo_producto_api': str(factura.get('f_cod_item', '')).strip(),
-            'condicion_pago': condicion_pago  # Para debug/auditoría
+            'condicion_pago': condicion_pago,  # Para debug/auditoría
+            'indice_linea': factura.get('_indice_linea', 0)  # Índice único de línea
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
