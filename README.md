@@ -1,308 +1,133 @@
-# 🏢 Sistema CIPA - Gestión de Notas de Crédito
+# CIPA - Sistema de Gestión de Notas Crédito
 
-Sistema completo para gestión de notas de crédito con API REST, frontend profesional y procesamiento automatizado.
+Sistema para gestión y aplicación automática de notas crédito a facturas.
 
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 
 ```
 cipa/
-├── backend/          # 🔧 Backend completo (Python/Flask)
-│   ├── api/         # API REST con autenticación JWT
-│   ├── core/        # Módulos de negocio
-│   ├── scripts/     # Scripts de utilidad y migrations
-│   ├── data/        # Base de datos SQLite
-│   └── config/      # Configuraciones
-│
-├── frontend/         # 🎨 Frontend (React + TypeScript + Vite)
-│   ├── src/         # Código fuente
-│   └── dist/        # Build de producción
-│
-├── docs/             # 📚 Documentación completa
-│   ├── ARQUITECTURA.md
-│   ├── GUIA_RAPIDA.md
-│   └── SOLUCION_AUTH.md
-│
-└── postman/          # 🧪 Colección Postman para testing
+├── backend/
+│   ├── api/            # API REST (Flask)
+│   │   ├── app.py      # Endpoints principales
+│   │   └── auth.py     # Autenticación JWT
+│   ├── core/           # Lógica de negocio
+│   │   ├── api_client.py           # Cliente API externa
+│   │   ├── business_rules.py       # Reglas de negocio
+│   │   ├── email_sender.py         # Envío de correos
+│   │   ├── excel_processor.py      # Procesamiento Excel
+│   │   └── notas_credito_manager.py # Gestión de notas
+│   ├── config/         # Configuración
+│   └── main.py         # Proceso principal
+├── frontend/           # Dashboard React + Vite
+├── data/               # Base de datos SQLite
+└── .github/workflows/  # GitHub Actions
 ```
 
-## 🚀 Inicio Rápido
+## Base de Datos
 
-### Backend (API REST)
+### Tablas Principales
 
-```bash
-# 1. Ir al backend
-cd backend
+**facturas** - Líneas de facturas válidas
+- `numero_linea` - Identificador de línea (ej: fem2020)
+- `producto`, `codigo_producto` - Datos del producto
+- `cantidad_original`, `precio_unitario`, `valor_total` - Valores originales
+- `nota_aplicada` - Si tiene nota aplicada (0/1)
+- `descuento_cantidad`, `descuento_valor` - Descuentos aplicados
+- `cantidad_restante`, `valor_restante` - Saldos después de nota
 
-# 2. Crear entorno virtual (recomendado)
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# o
-venv\Scripts\activate     # Windows
+**facturas_rechazadas** - Facturas que no cumplen reglas
+- `razon_rechazo` - Razón del rechazo
 
-# 3. Instalar dependencias
-pip install -r requirements.txt
+**notas_credito** - Notas de crédito válidas
+- `saldo_pendiente`, `cantidad_pendiente` - Saldos por aplicar
+- `estado` - PENDIENTE, PARCIAL, APLICADA
 
-# 4. Inicializar autenticación (primera vez)
-python scripts/inicializar_auth.py
+**usuarios** - Usuarios del dashboard
 
-# 5. Iniciar API
-python api/app.py
-```
+## Reglas de Aplicación de Notas
 
-**API disponible en:** `http://localhost:5000`
+Una nota se puede aplicar a una factura SOLO si:
 
-**Credenciales por defecto:**
-- Username: `admin`
-- Password: `admin123`
+1. **Cantidad nota <= Cantidad factura**
+2. **Valor nota <= Valor factura**
 
-### Frontend (Interfaz Web)
+Ejemplo:
+- Factura: cantidad=25, valor=$100,000
+- Nota: cantidad=24, valor=$96,000 -> Se aplica
+- Nota: cantidad=24, valor=$101,000 -> NO se aplica (valor excede)
 
-```bash
-# 1. Ir al frontend
-cd frontend
+Después de aplicar:
+- Factura queda con cantidad_restante=1, valor_restante=$4,000
 
-# 2. Instalar dependencias (primera vez)
-npm install
-
-# 3. Iniciar servidor de desarrollo
-npm run dev
-```
-
-**Frontend disponible en:** `http://localhost:3000`
-
-## ✨ Características
-
-### 🔐 Backend
-- ✅ API REST con Flask
-- ✅ Autenticación JWT (Access + Refresh tokens)
-- ✅ Rate limiting y seguridad
-- ✅ Base de datos SQLite
-- ✅ Sistema de notas de crédito
-- ✅ Gestión de aplicaciones
-- ✅ Estadísticas y reportes
-
-### 🎨 Frontend
-- ✅ React 18 + TypeScript
-- ✅ Diseño minimalista con Tailwind CSS
-- ✅ Dashboard con estadísticas
-- ✅ Gestión de notas de crédito
-- ✅ Sistema de autenticación completo
-- ✅ Manejo de errores robusto
-- ✅ Responsive design
-
-### 💼 Lógica de Negocio
-- ✅ Validación de tipos de inventario
-- ✅ Validación de monto mínimo
-- ✅ Aplicación automática de notas de crédito
-- ✅ Historial completo de aplicaciones
-- ✅ Generación de reportes Excel
-- ✅ Envío por email (opcional)
-
-## 📡 API Endpoints
-
-### Autenticación
-```
-POST   /api/auth/login              # Login
-POST   /api/auth/logout             # Logout
-POST   /api/auth/refresh            # Refresh token
-POST   /api/auth/change-password    # Cambiar contraseña
-```
-
-### Notas de Crédito
-```
-GET    /api/notas                   # Listar notas
-GET    /api/notas/<id>              # Obtener nota
-GET    /api/notas/estadisticas      # Estadísticas
-GET    /api/notas/por-estado        # Agrupado por estado
-GET    /api/aplicaciones/<numero>   # Aplicaciones
-GET    /api/health                  # Health check
-```
-
-## 🗂️ Documentación Completa
-
-Toda la documentación está en la carpeta `docs/`:
-
-- **[ARQUITECTURA.md](docs/ARQUITECTURA.md)** - Diagramas y arquitectura del sistema
-- **[GUIA_RAPIDA.md](docs/GUIA_RAPIDA.md)** - Guía de implementación rápida
-- **[CAMBIOS_SISTEMA.md](docs/CAMBIOS_SISTEMA.md)** - Historial de cambios
-- **[NUEVAS_FUNCIONALIDADES.md](docs/NUEVAS_FUNCIONALIDADES.md)** - Nuevas features
-- **[SOLUCION_AUTH.md](docs/SOLUCION_AUTH.md)** - Solución a problemas de autenticación
-- **[PROYECTO_ORGANIZADO.md](PROYECTO_ORGANIZADO.md)** - Guía de la estructura
-
-## 🛠️ Scripts Disponibles
+## Instalación
 
 ### Backend
 ```bash
 cd backend
+pip install -r requirements.txt
+python main.py
+```
 
-# Autenticación
-python scripts/inicializar_auth.py          # Inicializar sistema de auth
-python scripts/verificar_usuario_admin.py   # Verificar usuario admin
-
-# Utilidades
-python scripts/backup_database.py           # Backup de la BD
-python scripts/test_sistema.py              # Tests del sistema
-python scripts/consultar_notas.py           # Consultar notas
-python scripts/reporte_diario.py            # Generar reporte
-
-# Proceso principal
-python main.py                               # Procesar notas de crédito
+### API
+```bash
+cd backend/api
+pip install -r requirements.txt
+python app.py
 ```
 
 ### Frontend
 ```bash
 cd frontend
-
-npm run dev         # Desarrollo
-npm run build       # Build para producción
-npm run preview     # Preview del build
-npm run lint        # Linter
+npm install
+npm run dev
 ```
 
-## 💾 Base de Datos
-
-**Ubicación:** `backend/data/notas_credito.db`
-
-### Tablas Principales
-
-- `notas_credito` - Notas de crédito registradas
-- `aplicaciones_notas` - Historial de aplicaciones
-- `usuarios` - Usuarios del sistema
-- `sesiones` - Sesiones JWT activas
-- `intentos_login` - Log de intentos de acceso
-
-### Backup
-```bash
-cd backend
-python scripts/backup_database.py
-```
-
-## ⚙️ Configuración
-
-### Variables de Entorno
-
-Copiar `backend/.env.example` a `backend/.env`:
+## Variables de Entorno
 
 ```env
-# JWT
-JWT_SECRET_KEY=tu-secret-key-aqui
+# API Externa
+CONNI_KEY=tu_key
+CONNI_TOKEN=tu_token
 
-# API
-API_PORT=5000
-DEBUG=False
-
-# Database
+# Base de datos
 DB_PATH=./data/notas_credito.db
 
-# Email (opcional)
-EMAIL_USERNAME=tu-email
-EMAIL_PASSWORD=tu-password
+# JWT
+JWT_SECRET_KEY=tu_secret_key
+
+# Email
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
+EMAIL_USERNAME=tu_email
+EMAIL_PASSWORD=tu_password
+DESTINATARIOS=email1@ejemplo.com,email2@ejemplo.com
 ```
 
-## 🧪 Testing
+## API Endpoints
 
-### Con Postman
+### Autenticación
+- `POST /api/auth/login` - Iniciar sesión
+- `POST /api/auth/logout` - Cerrar sesión
+- `POST /api/auth/refresh` - Renovar token
 
-1. Importar colección desde `postman/`
-2. Configurar environment con URL base
-3. Ejecutar login para obtener tokens
-4. Probar endpoints protegidos
+### Facturas
+- `GET /api/facturas` - Listar facturas
+- `GET /api/facturas/:id` - Detalle factura
+- `GET /api/facturas/estadisticas` - Estadísticas
+- `GET /api/facturas/rechazadas` - Facturas rechazadas
 
-### Con curl
+### Notas Crédito
+- `GET /api/notas` - Listar notas
+- `GET /api/notas/:id` - Detalle nota
+- `GET /api/notas/estadisticas` - Estadísticas
 
-```bash
-# Health check
-curl http://localhost:5000/api/health
+### Dashboard
+- `GET /api/dashboard` - Datos del dashboard
+- `GET /api/reporte/operativo` - Reporte diario
 
-# Login
-curl -X POST http://localhost:5000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+## Credenciales por defecto
 
-# Obtener estadísticas (requiere token)
-curl http://localhost:5000/api/notas/estadisticas \
-  -H "Authorization: Bearer TU_TOKEN_AQUI"
-```
+- Usuario: `admin`
+- Password: `admin123`
 
-## 📦 Deployment
-
-### Backend con Docker
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install -r requirements.txt
-COPY backend/ .
-CMD ["python", "api/app.py"]
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm run build
-# Servir carpeta dist/ con nginx, apache, vercel, netlify, etc.
-```
-
-## 🔒 Seguridad
-
-- ✅ JWT con access y refresh tokens
-- ✅ Passwords con bcrypt
-- ✅ Rate limiting por IP
-- ✅ CORS configurado
-- ✅ Bloqueo temporal tras intentos fallidos
-- ✅ Logging de accesos
-
-## 🆘 Solución de Problemas
-
-### Backend no inicia
-1. Verificar dependencias: `pip install -r backend/requirements.txt`
-2. Inicializar auth: `python backend/scripts/inicializar_auth.py`
-3. Revisar logs en consola
-
-### Frontend no conecta
-1. Verificar que backend esté en `http://localhost:5000`
-2. Verificar `.env` del frontend
-3. Revisar consola del navegador
-
-### Tokens inválidos
-```bash
-cd backend
-python scripts/inicializar_auth.py
-python scripts/verificar_usuario_admin.py
-```
-
-Ver `docs/SOLUCION_AUTH.md` para más detalles.
-
-## 🔗 Recursos
-
-- **Backend README:** [backend/README.md](backend/README.md)
-- **Frontend README:** [frontend/README.md](frontend/README.md)
-- **API Documentation:** [backend/api/README.md](backend/api/README.md)
-- **Postman Collection:** [postman/README.md](postman/README.md)
-
-## 🤝 Contribuir
-
-1. Crear rama desde `main`
-2. Hacer cambios
-3. Probar localmente
-4. Commit con mensajes descriptivos
-5. Push y crear Pull Request
-
-## 📄 Licencia
-
-Este proyecto es privado y confidencial.
-
-## 📞 Soporte
-
-Para problemas o preguntas:
-1. Revisar documentación en `docs/`
-2. Revisar logs de la API
-3. Consultar `SOLUCION_AUTH.md` para problemas de autenticación
-
----
-
-**Desarrollado con las mejores prácticas de desarrollo moderno** 🚀
+**Importante:** Cambiar la contraseña en producción.
