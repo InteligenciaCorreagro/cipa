@@ -1,250 +1,281 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useNotas } from '@/hooks/useNotas'
+import { Table, Badge } from '@/components/ui/table'
+import { DateRangePicker } from '@/components/ui/datepicker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import { Search, Eye, ChevronLeft, ChevronRight, ServerCrash, RefreshCw } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { FileText, Search, Filter, Download, Plus, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react'
+import { api } from '@/services/api'
 
-const LIMITE = 50
+// Función para formatear moneda
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+interface NotaCredito {
+  id: number
+  numero_nota: string
+  fecha_nota: string
+  nit_cliente: string
+  nombre_cliente: string
+  valor_total: number
+  saldo_pendiente: number
+  estado: 'Pendiente' | 'Aplicado' | 'Rechazado' | 'Parcial'
+  fecha_creacion: string
+}
 
 export default function NotasPage() {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
-  const [estado, setEstado] = useState<string>('')
-  const [offset, setOffset] = useState(0)
+  const [notas, setNotas] = useState<NotaCredito[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [estadoFilter, setEstadoFilter] = useState<string>('todos')
+  const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
 
-  const { data, isLoading, error, refetch } = useNotas({
-    estado: estado || undefined,
-    nit_cliente: search || undefined,
-    limite: LIMITE,
-    offset,
+  useEffect(() => {
+    fetchNotas()
+  }, [])
+
+  const fetchNotas = async () => {
+    try {
+      setLoading(true)
+      const response = await api.get('/api/notas')
+      setNotas(response.data.items || response.data || [])
+    } catch (error) {
+      console.error('Error al cargar notas:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Filtrar notas
+  const filteredNotas = notas.filter((nota) => {
+    const matchSearch = 
+      nota.numero_nota.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      nota.nombre_cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      nota.nit_cliente.includes(searchTerm)
+
+    const matchEstado = estadoFilter === 'todos' || nota.estado === estadoFilter
+
+    const matchDateRange = 
+      (!dateRange.from || new Date(nota.fecha_nota) >= dateRange.from) &&
+      (!dateRange.to || new Date(nota.fecha_nota) <= dateRange.to)
+
+    return matchSearch && matchEstado && matchDateRange
   })
 
-  const getEstadoBadge = (estado: string) => {
-    switch (estado) {
-      case 'PENDIENTE':
-        return <Badge variant="warning">{estado}</Badge>
-      case 'PARCIAL':
-        return <Badge variant="secondary">{estado}</Badge>
-      case 'APLICADA':
-        return <Badge variant="success">{estado}</Badge>
-      default:
-        return <Badge>{estado}</Badge>
-    }
-  }
-
-  const handleNext = () => {
-    if (data && offset + LIMITE < data.total) {
-      setOffset(offset + LIMITE)
-    }
-  }
-
-  const handlePrevious = () => {
-    if (offset >= LIMITE) {
-      setOffset(offset - LIMITE)
-    }
-  }
+  // Columnas de la tabla
+  const columns = [
+    {
+      key: 'numero_nota',
+      label: 'Número de Nota',
+      render: (nota: NotaCredito) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900">{nota.numero_nota}</p>
+            <p className="text-xs text-gray-500">
+              {new Date(nota.fecha_nota).toLocaleDateString('es-CO', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+              })}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'cliente',
+      label: 'Cliente',
+      render: (nota: NotaCredito) => (
+        <div>
+          <p className="font-medium text-gray-900">{nota.nombre_cliente}</p>
+          <p className="text-xs text-gray-500 font-mono">{nota.nit_cliente}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'valor_total',
+      label: 'Valor Total',
+      align: 'right' as const,
+      render: (nota: NotaCredito) => (
+        <span className="font-semibold text-gray-900">
+          {formatCurrency(Math.abs(nota.valor_total))}
+        </span>
+      ),
+    },
+    {
+      key: 'saldo_pendiente',
+      label: 'Saldo Pendiente',
+      align: 'right' as const,
+      render: (nota: NotaCredito) => (
+        <span className={`font-bold ${
+          nota.saldo_pendiente > 0 ? 'text-orange-600' : 'text-emerald-600'
+        }`}>
+          {formatCurrency(Math.abs(nota.saldo_pendiente))}
+        </span>
+      ),
+    },
+    {
+      key: 'estado',
+      label: 'Estado',
+      align: 'center' as const,
+      render: (nota: NotaCredito) => {
+        const variants: Record<string, { variant: any; icon: any }> = {
+          'Aplicado': { variant: 'success', icon: CheckCircle },
+          'Pendiente': { variant: 'warning', icon: Clock },
+          'Rechazado': { variant: 'danger', icon: XCircle },
+          'Parcial': { variant: 'info', icon: AlertCircle }
+        }
+        const config = variants[nota.estado] || { variant: 'default', icon: FileText }
+        const Icon = config.icon
+        
+        return (
+          <Badge variant={config.variant}>
+            <Icon className="w-3.5 h-3.5" />
+            {nota.estado}
+          </Badge>
+        )
+      },
+    },
+  ]
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Consulta de Notas</h1>
-        <p className="text-muted-foreground">
-          Visualización y consulta de información de notas
-        </p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Notas de Crédito</h1>
+          <p className="text-gray-500 mt-1">
+            Gestiona y consulta las notas de crédito del sistema
+          </p>
+        </div>
+        <Button 
+          onClick={() => navigate('/notas/nueva')}
+          className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-lg shadow-emerald-600/30"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Nueva Nota
+        </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-          <CardDescription>
-            Buscar y filtrar notas
-          </CardDescription>
+      {/* Filtros */}
+      <Card className="border-0 shadow-md">
+        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white pb-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5 text-gray-500" />
+            <CardTitle className="text-lg">Filtros de Búsqueda</CardTitle>
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por NIT cliente..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value)
-                  setOffset(0)
-                }}
-                className="pl-9"
+        <CardContent className="pt-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {/* Búsqueda */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Buscar</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Número, cliente o NIT..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 h-11 border-2 focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            {/* Estado */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Estado</label>
+              <Select value={estadoFilter} onValueChange={setEstadoFilter}>
+                <SelectTrigger className="h-11 border-2 focus:border-emerald-500">
+                  <SelectValue placeholder="Todos los estados" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos los estados</SelectItem>
+                  <SelectItem value="Pendiente">Pendiente</SelectItem>
+                  <SelectItem value="Aplicado">Aplicado</SelectItem>
+                  <SelectItem value="Rechazado">Rechazado</SelectItem>
+                  <SelectItem value="Parcial">Parcial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Rango de Fechas */}
+            <div className="space-y-2 lg:col-span-2">
+              <label className="text-sm font-medium text-gray-700">Rango de Fechas</label>
+              <DateRangePicker
+                dateRange={dateRange}
+                onDateRangeChange={setDateRange}
+                placeholder="Seleccionar rango de fechas"
               />
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant={estado === '' ? 'default' : 'outline'}
-                onClick={() => {
-                  setEstado('')
-                  setOffset(0)
-                }}
-                size="sm"
-              >
-                Todos
-              </Button>
-              <Button
-                variant={estado === 'PENDIENTE' ? 'default' : 'outline'}
-                onClick={() => {
-                  setEstado('PENDIENTE')
-                  setOffset(0)
-                }}
-                size="sm"
-              >
-                Pendientes
-              </Button>
-              <Button
-                variant={estado === 'PARCIAL' ? 'default' : 'outline'}
-                onClick={() => {
-                  setEstado('PARCIAL')
-                  setOffset(0)
-                }}
-                size="sm"
-              >
-                Parciales
-              </Button>
-              <Button
-                variant={estado === 'APLICADA' ? 'default' : 'outline'}
-                onClick={() => {
-                  setEstado('APLICADA')
-                  setOffset(0)
-                }}
-                size="sm"
-              >
-                Aplicadas
-              </Button>
+          </div>
+
+          {/* Stats rápidas */}
+          <div className="grid gap-4 md:grid-cols-4 mt-6 pt-6 border-t">
+            <div className="text-center">
+              <p className="text-sm text-gray-500">Total Notas</p>
+              <p className="text-2xl font-bold text-gray-900">{filteredNotas.length}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-gray-500">Valor Total</p>
+              <p className="text-2xl font-bold text-emerald-600">
+                {formatCurrency(filteredNotas.reduce((sum, n) => sum + Math.abs(n.valor_total), 0))}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-gray-500">Saldo Pendiente</p>
+              <p className="text-2xl font-bold text-orange-600">
+                {formatCurrency(filteredNotas.reduce((sum, n) => sum + Math.abs(n.saldo_pendiente), 0))}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-gray-500">Aplicadas</p>
+              <p className="text-2xl font-bold text-blue-600">
+                {filteredNotas.filter(n => n.estado === 'Aplicado').length}
+              </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Listado de Notas</CardTitle>
-          <CardDescription>
-            {data ? `Mostrando ${offset + 1} - ${Math.min(offset + LIMITE, data.total)} de ${data.total} notas` : 'Cargando...'}
-          </CardDescription>
+      {/* Tabla */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Listado de Notas</CardTitle>
+              <CardDescription>
+                {filteredNotas.length} {filteredNotas.length === 1 ? 'nota encontrada' : 'notas encontradas'}
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Download className="h-4 w-4" />
+              Exportar
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
-          {error ? (
-            <div className="flex flex-col items-center justify-center h-64 space-y-4">
-              <ServerCrash className="h-12 w-12 text-muted-foreground" />
-              <div className="text-center space-y-2">
-                <h3 className="text-lg font-semibold">Error al cargar las notas</h3>
-                <p className="text-muted-foreground max-w-md">
-                  No se pudo conectar con la API. Por favor, verifica que el servidor esté funcionando.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Error: {(error as any)?.message || 'Error de conexión'}
-                </p>
-              </div>
-              <Button onClick={() => refetch()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Reintentar
-              </Button>
-            </div>
-          ) : isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="text-muted-foreground">Cargando notas...</div>
-            </div>
-          ) : data && data.items.length > 0 ? (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Número</TableHead>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead className="text-right">Valor Total</TableHead>
-                    <TableHead className="text-right">Saldo Pendiente</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.items.map((nota) => (
-                    <TableRow key={nota.id}>
-                      <TableCell className="font-medium">{nota.numero_nota}</TableCell>
-                      <TableCell>{formatDate(nota.fecha_nota)}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{nota.nombre_cliente}</div>
-                          <div className="text-xs text-muted-foreground">{nota.nit_cliente}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{nota.nombre_producto}</div>
-                          <div className="text-xs text-muted-foreground">{nota.codigo_producto}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(Math.abs(nota.valor_total))}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(Math.abs(nota.saldo_pendiente))}
-                      </TableCell>
-                      <TableCell>{getEstadoBadge(nota.estado)}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => navigate(`/notas/${nota.id}`)}
-                          title="Ver detalles"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {/* Pagination */}
-              <div className="flex items-center justify-between mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePrevious}
-                  disabled={offset === 0}
-                >
-                  <ChevronLeft className="h-4 w-4 mr-2" />
-                  Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Página {Math.floor(offset / LIMITE) + 1} de {Math.ceil(data.total / LIMITE)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleNext}
-                  disabled={offset + LIMITE >= data.total}
-                >
-                  Siguiente
-                  <ChevronRight className="h-4 w-4 ml-2" />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-64">
-              <div className="text-muted-foreground">No se encontraron notas</div>
-            </div>
-          )}
+        <CardContent className="p-0">
+          <Table
+            columns={columns}
+            data={filteredNotas}
+            keyExtractor={(nota) => nota.id.toString()}
+            onRowClick={(nota) => navigate(`/notas/${nota.id}`)}
+            loading={loading}
+            emptyMessage="No se encontraron notas con los filtros aplicados"
+            hoverable
+            bordered
+          />
         </CardContent>
       </Card>
     </div>
