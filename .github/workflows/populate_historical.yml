@@ -1,26 +1,25 @@
-name: Poblar BD Histórica
+name: Poblar BD Historica
 
 on:
   workflow_dispatch:
     inputs:
       fecha_desde:
-        description: 'Fecha desde (YYYY-MM-DD)'
+        description: "Fecha desde (YYYY-MM-DD)"
         required: true
-        default: '2025-12-01'
+        type: string
       fecha_hasta:
-        description: 'Fecha hasta (YYYY-MM-DD)'
+        description: "Fecha hasta (YYYY-MM-DD)"
         required: true
-        default: '2025-12-07'
+        type: string
 
 jobs:
   poblar-historico:
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
 
     steps:
-      - name: Descargar código
+      - name: Descargar codigo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -33,7 +32,7 @@ jobs:
       - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Instalar dependencias
         run: |
@@ -43,42 +42,69 @@ jobs:
       - name: Crear directorios
         run: mkdir -p data output templates
 
-      - name: Procesar rango histórico
+      - name: Procesar rango historico
         env:
           CONNI_KEY: ${{ secrets.CONNI_KEY }}
           CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
           DB_PATH: ./data/notas_credito.db
-          ${{ github.event.inputs.fecha_desde }}: ${{ github.event.inputs.fecha_desde }}
-          ${{ github.event.inputs.fecha_hasta }}: ${{ github.event.inputs.fecha_hasta }}
+          FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
+          FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
         run: |
-          echo "Procesando desde ${{ github.event.inputs.fecha_desde }} hasta ${{ github.event.inputs.fecha_hasta }}"
-          python -c "
-          import os, sys
+          python - <<'PY'
+          import os
+          import sys
           from datetime import datetime
-          sys.path.insert(0, 'backend')
+
+          fecha_desde_raw = os.environ["FECHA_DESDE"].strip()
+          fecha_hasta_raw = os.environ["FECHA_HASTA"].strip()
+
+          try:
+              fecha_desde = datetime.strptime(fecha_desde_raw, "%Y-%m-%d")
+              fecha_hasta = datetime.strptime(fecha_hasta_raw, "%Y-%m-%d")
+          except ValueError as exc:
+              raise SystemExit(f"Formato de fecha invalido: {exc}")
+
+          if fecha_desde > fecha_hasta:
+              raise SystemExit("fecha_desde debe ser menor o igual a fecha_hasta")
+
+          if not os.getenv("CONNI_KEY") or not os.getenv("CONNI_TOKEN"):
+              raise SystemExit("Faltan secrets CONNI_KEY y/o CONNI_TOKEN")
+
+          sys.path.insert(0, "backend")
           from main import procesar_rango_fechas
+
           config = {
-              'CONNI_KEY': os.getenv('CONNI_KEY'),
-              'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
-              'DB_PATH': './data/notas_credito.db',
-              'TEMPLATE_PATH': './templates/plantilla.xlsx'
+              "CONNI_KEY": os.getenv("CONNI_KEY"),
+              "CONNI_TOKEN": os.getenv("CONNI_TOKEN"),
+              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito.db"),
+              "TEMPLATE_PATH": "./templates/plantilla.xlsx",
           }
-          fd = datetime.strptime(os.getenv('${{ github.event.inputs.fecha_desde }}'), '%Y-%m-%d')
-          fh = datetime.strptime(os.getenv('${{ github.event.inputs.fecha_hasta }}'), '%Y-%m-%d')
-          resultado = procesar_rango_fechas(fd, fh, config)
-          print(f'Dias: {resultado.get(\"total_dias\",0)} | Facturas: {resultado.get(\"total_facturas_procesadas\",0)}')
-          "
+
+          resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
+          if not resultado.get("exito"):
+              raise SystemExit(f"El proceso no fue exitoso: {resultado}")
+
+          print("Resumen de procesamiento:")
+          print(f"- Dias: {resultado.get('total_dias', 0)}")
+          print(f"- Facturas: {resultado.get('total_facturas_procesadas', 0)}")
+          print(f"- Notas credito: {resultado.get('total_notas_credito', 0)}")
+          print(f"- Rechazadas: {resultado.get('total_facturas_rechazadas', 0)}")
+          print(f"- Aplicaciones: {resultado.get('total_aplicaciones', 0)}")
+          print(f"- Archivo: {resultado.get('archivo_generado', 'N/A')}")
+          PY
 
       - name: Guardar cambios
         env:
-          ${{ github.event.inputs.fecha_desde }}: ${{ github.event.inputs.fecha_desde }}
-          ${{ github.event.inputs.fecha_hasta }}: ${{ github.event.inputs.fecha_hasta }}
+          FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
+          FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
         run: |
           if [ -f data/notas_credito.db ]; then
             git add data/notas_credito.db
             if ! git diff --staged --quiet; then
-              git commit -m "BD histórica: ${{ github.event.inputs.fecha_desde }} a ${{ github.event.inputs.fecha_hasta }}"
+              git commit -m "BD historica: ${FECHA_DESDE} a ${FECHA_HASTA}"
               git push
+            else
+              echo "Sin cambios en la base de datos"
             fi
           fi
 
@@ -86,6 +112,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: historico
+          name: historico-${{ github.run_number }}
           path: output/*.xlsx
           retention-days: 30
