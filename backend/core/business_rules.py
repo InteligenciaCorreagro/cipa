@@ -44,7 +44,7 @@ class BusinessRulesValidator:
     }
     
     # Monto mínimo para procesar una factura COMPLETA (en pesos colombianos)
-    MONTO_MINIMO = 498000.0
+    MONTO_MINIMO = 524000.0
     
     # Valores de f_02_014 que NO deben registrarse (retención)
     AGENTES_RETENCION_EXCLUIDOS = {
