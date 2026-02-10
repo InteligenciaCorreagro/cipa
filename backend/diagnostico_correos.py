@@ -239,7 +239,35 @@ def probar_envio_correo(modo='test'):
 
         error_str = str(e).lower()
 
-        if 'authentication' in error_str or 'username' in error_str or 'password' in error_str:
+        # Detectar error específico de Office365
+        if 'basic authentication is disabled' in error_str or 'outlook.com' in error_str:
+            print("\n🔴 ERROR CRÍTICO: OUTLOOK/OFFICE365 - AUTENTICACIÓN BÁSICA DESHABILITADA")
+            print("="*80)
+            print("\n⚠️  Microsoft DESHABILITÓ permanentemente la autenticación básica (usuario/contraseña)")
+            print("   para Office365/Outlook desde octubre de 2022.")
+            print("\n❌ NO PUEDES usar Outlook/Office365 con usuario y contraseña.")
+            print("\n✅ SOLUCIONES INMEDIATAS:")
+            print("\n1. 🎯 USAR GMAIL (MÁS FÁCIL - 15 minutos):")
+            print("   • Crea cuenta: https://accounts.google.com/signup")
+            print("   • Activa 2FA: https://myaccount.google.com/security")
+            print("   • Crea App Password: https://myaccount.google.com/apppasswords")
+            print("   • Actualiza SMTP_SERVER=smtp.gmail.com")
+            print("   • Actualiza EMAIL_USERNAME y EMAIL_PASSWORD")
+            print("\n2. 🎯 USAR SENDGRID (PROFESIONAL - 20 minutos):")
+            print("   • Regístrate GRATIS: https://signup.sendgrid.com/")
+            print("   • 100 correos/día gratis permanente")
+            print("   • Crea API Key en Settings → API Keys")
+            print("   • Actualiza SMTP_SERVER=smtp.sendgrid.net")
+            print("   • Actualiza EMAIL_USERNAME=apikey")
+            print("   • Actualiza EMAIL_PASSWORD=[tu API Key]")
+            print("\n3. 🎯 USAR BREVO (ALTERNATIVA - 20 minutos):")
+            print("   • Regístrate: https://www.brevo.com/")
+            print("   • 300 correos/día gratis")
+            print("   • Actualiza SMTP_SERVER=smtp-relay.brevo.com")
+            print("\n📖 Lee la guía completa en: backend/FIX_OUTLOOK_ERROR.md")
+            print("\n⚠️  NO intentes arreglar Office365, es muy complejo y requiere permisos de admin.")
+
+        elif 'authentication' in error_str or 'username' in error_str or 'password' in error_str:
             print("\n🔐 PROBLEMA DE AUTENTICACIÓN:")
             print("  • Para Gmail:")
             print("    1. Ve a https://myaccount.google.com/apppasswords")
@@ -247,9 +275,9 @@ def probar_envio_correo(modo='test'):
             print("    3. Genera una 'App Password' para 'Correo'")
             print("    4. Usa esa contraseña en EMAIL_PASSWORD (no tu contraseña normal)")
             print("\n  • Para Outlook/Office365:")
-            print("    - Servidor: smtp.office365.com")
-            print("    - Puerto: 587")
-            print("    - Puede requerir autenticación moderna")
+            print("    ⚠️  NOTA: Microsoft deshabilitó autenticación básica.")
+            print("    - Recomendamos usar Gmail o SendGrid en su lugar")
+            print("    - Ver: backend/FIX_OUTLOOK_ERROR.md")
 
         elif 'connection' in error_str or 'timeout' in error_str:
             print("\n🌐 PROBLEMA DE CONEXIÓN:")
