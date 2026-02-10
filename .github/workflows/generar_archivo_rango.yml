@@ -1,0 +1,101 @@
+name: Generar Archivo por Rango
+
+on:
+  workflow_dispatch:
+    inputs:
+      fecha_desde:
+        description: "Fecha desde (YYYY-MM-DD)"
+        required: true
+        type: string
+      fecha_hasta:
+        description: "Fecha hasta (YYYY-MM-DD)"
+        required: true
+        type: string
+
+jobs:
+  generar-archivo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Crear directorios
+        run: mkdir -p data output templates
+
+      - name: Procesar rango y generar archivo
+        id: proceso
+        env:
+          CONNI_KEY: ${{ secrets.CONNI_KEY }}
+          CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
+          FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
+          FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
+          DB_PATH: ./data/notas_credito_workflow.db
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from datetime import datetime
+
+          fecha_desde_raw = os.environ["FECHA_DESDE"].strip()
+          fecha_hasta_raw = os.environ["FECHA_HASTA"].strip()
+
+          try:
+              fecha_desde = datetime.strptime(fecha_desde_raw, "%Y-%m-%d")
+              fecha_hasta = datetime.strptime(fecha_hasta_raw, "%Y-%m-%d")
+          except ValueError as exc:
+              raise SystemExit(f"Formato de fecha invalido: {exc}")
+
+          if fecha_desde > fecha_hasta:
+              raise SystemExit("fecha_desde debe ser menor o igual a fecha_hasta")
+
+          if not os.getenv("CONNI_KEY") or not os.getenv("CONNI_TOKEN"):
+              raise SystemExit("Faltan secrets CONNI_KEY y/o CONNI_TOKEN")
+
+          sys.path.insert(0, "backend")
+          from main import procesar_rango_fechas
+
+          config = {
+              "CONNI_KEY": os.getenv("CONNI_KEY"),
+              "CONNI_TOKEN": os.getenv("CONNI_TOKEN"),
+              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito_workflow.db"),
+              "TEMPLATE_PATH": "./templates/plantilla.xlsx",
+          }
+
+          resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
+          if not resultado.get("exito"):
+              raise SystemExit(f"El proceso no fue exitoso: {resultado}")
+
+          archivo_nombre = resultado.get("archivo_generado", "").strip()
+          if not archivo_nombre:
+              raise SystemExit("El proceso no devolvio nombre de archivo")
+
+          archivo_path = os.path.join("output", archivo_nombre)
+          if not os.path.exists(archivo_path):
+              raise SystemExit("No se genero archivo para el rango seleccionado")
+
+          print(f"Archivo generado: {archivo_path}")
+
+          github_output = os.environ["GITHUB_OUTPUT"]
+          with open(github_output, "a", encoding="utf-8") as f:
+              f.write(f"archivo_path={archivo_path}\n")
+              f.write(f"archivo_nombre={archivo_nombre}\n")
+          PY
+
+      - name: Subir archivo
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.proceso.outputs.archivo_nombre }}
+          path: ${{ steps.proceso.outputs.archivo_path }}
+          if-no-files-found: error
+          retention-days: 30
