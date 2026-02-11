@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      WORKFLOW_DB_PATH: ./data/notas_credito_historico_workflow.db
 
     steps:
       - name: Descargar codigo
@@ -42,11 +44,14 @@ jobs:
       - name: Crear directorios
         run: mkdir -p data output templates
 
+      - name: Reiniciar base de datos del workflow
+        run: rm -f "${WORKFLOW_DB_PATH}"
+
       - name: Procesar rango historico
         env:
           CONNI_KEY: ${{ secrets.CONNI_KEY }}
           CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
-          DB_PATH: ./data/notas_credito.db
+          DB_PATH: ${{ env.WORKFLOW_DB_PATH }}
           FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
           FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
         run: |
@@ -76,7 +81,7 @@ jobs:
           config = {
               "CONNI_KEY": os.getenv("CONNI_KEY"),
               "CONNI_TOKEN": os.getenv("CONNI_TOKEN"),
-              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito.db"),
+              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito_historico_workflow.db"),
               "TEMPLATE_PATH": "./templates/plantilla.xlsx",
           }
 
@@ -90,6 +95,9 @@ jobs:
           print(f"- Notas credito: {resultado.get('total_notas_credito', 0)}")
           print(f"- Rechazadas: {resultado.get('total_facturas_rechazadas', 0)}")
           print(f"- Aplicaciones: {resultado.get('total_aplicaciones', 0)}")
+          print(f"- Notas aplicadas: {resultado.get('notas_aplicadas', 0)}")
+          print(f"- Notas pendientes: {resultado.get('notas_pendientes', 0)}")
+          print(f"- Saldo pendiente: {resultado.get('saldo_pendiente_total', 0.0)}")
           print(f"- Archivo: {resultado.get('archivo_generado', 'N/A')}")
           PY
 
@@ -98,8 +106,8 @@ jobs:
           FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
           FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
         run: |
-          if [ -f data/notas_credito.db ]; then
-            git add data/notas_credito.db
+          if [ -f "${WORKFLOW_DB_PATH}" ]; then
+            git add "${WORKFLOW_DB_PATH}"
             if ! git diff --staged --quiet; then
               git commit -m "BD historica: ${FECHA_DESDE} a ${FECHA_HASTA}"
               git push

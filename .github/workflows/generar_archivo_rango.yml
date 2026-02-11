@@ -15,6 +15,8 @@ on:
 jobs:
   generar-archivo:
     runs-on: ubuntu-latest
+    env:
+      WORKFLOW_DB_PATH: ./data/notas_credito_rango_workflow.db
 
     steps:
       - name: Descargar codigo
@@ -33,6 +35,9 @@ jobs:
       - name: Crear directorios
         run: mkdir -p data output templates
 
+      - name: Reiniciar base de datos del workflow
+        run: rm -f "${WORKFLOW_DB_PATH}"
+
       - name: Procesar rango y generar archivo
         id: proceso
         env:
@@ -40,7 +45,7 @@ jobs:
           CONNI_TOKEN: ${{ secrets.CONNI_TOKEN }}
           FECHA_DESDE: ${{ github.event.inputs.fecha_desde }}
           FECHA_HASTA: ${{ github.event.inputs.fecha_hasta }}
-          DB_PATH: ./data/notas_credito_workflow.db
+          DB_PATH: ${{ env.WORKFLOW_DB_PATH }}
         run: |
           python - <<'PY'
           import os
@@ -68,7 +73,7 @@ jobs:
           config = {
               "CONNI_KEY": os.getenv("CONNI_KEY"),
               "CONNI_TOKEN": os.getenv("CONNI_TOKEN"),
-              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito_workflow.db"),
+              "DB_PATH": os.getenv("DB_PATH", "./data/notas_credito_rango_workflow.db"),
               "TEMPLATE_PATH": "./templates/plantilla.xlsx",
           }
 
@@ -85,6 +90,10 @@ jobs:
               raise SystemExit("No se genero archivo para el rango seleccionado")
 
           print(f"Archivo generado: {archivo_path}")
+          print("Resumen notas:")
+          print(f"- Notas aplicadas: {resultado.get('notas_aplicadas', 0)}")
+          print(f"- Notas pendientes: {resultado.get('notas_pendientes', 0)}")
+          print(f"- Saldo pendiente: {resultado.get('saldo_pendiente_total', 0.0)}")
 
           github_output = os.environ["GITHUB_OUTPUT"]
           with open(github_output, "a", encoding="utf-8") as f:
@@ -97,5 +106,13 @@ jobs:
         with:
           name: ${{ steps.proceso.outputs.archivo_nombre }}
           path: ${{ steps.proceso.outputs.archivo_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Subir base de datos de notas
+        uses: actions/upload-artifact@v4
+        with:
+          name: notas_credito_rango_db-${{ github.run_number }}
+          path: ${{ env.WORKFLOW_DB_PATH }}
           if-no-files-found: error
           retention-days: 30

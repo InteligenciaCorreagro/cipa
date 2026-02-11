@@ -410,16 +410,18 @@ class NotasCreditoManager:
             logger.error(f"Error al registrar nota crédito: {e}")
             return False
 
-    def registrar_factura(self, factura_transformada: Dict) -> bool:
+    def registrar_factura(self, factura: Dict) -> bool:
         """
-        Registra una línea de factura en la base de datos
+        Registra una línea de factura en la base de datos.
 
         IMPORTANTE: Cada línea se identifica por (numero_factura, codigo_producto,
         indice_linea, fecha_proceso). Esto permite guardar múltiples líneas del
         mismo producto en la misma factura.
 
+        Acepta factura en formato crudo de API (f_*) o formato transformado.
+
         Args:
-            factura_transformada: Factura ya procesada por ExcelProcessor
+            factura: Factura cruda o transformada
 
         Returns:
             True si se registró correctamente
@@ -428,30 +430,56 @@ class NotasCreditoManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Detectar formato de entrada
+            es_factura_cruda = any(k in factura for k in ('f_prefijo', 'f_nrodocto', 'f_cod_item'))
+
             # Parsear fecha
-            fecha_factura = factura_transformada.get('fecha_factura')
-            if isinstance(fecha_factura, str):
+            if es_factura_cruda:
+                fecha_raw = factura.get('f_fecha')
+            else:
+                fecha_raw = factura.get('fecha_factura')
+
+            fecha_factura = None
+            if isinstance(fecha_raw, str):
                 try:
-                    fecha_factura = datetime.strptime(fecha_factura, '%Y-%m-%d').date()
+                    fecha_factura = datetime.fromisoformat(str(fecha_raw).replace('T00:00:00', '')).date()
                 except:
-                    fecha_factura = datetime.now().date()
-            elif hasattr(fecha_factura, 'date'):
-                fecha_factura = fecha_factura.date() if callable(fecha_factura.date) else fecha_factura
+                    try:
+                        fecha_factura = datetime.strptime(fecha_raw, '%Y-%m-%d').date()
+                    except:
+                        fecha_factura = datetime.now().date()
+            elif hasattr(fecha_raw, 'date'):
+                fecha_factura = fecha_raw.date() if callable(fecha_raw.date) else fecha_raw
             else:
                 fecha_factura = datetime.now().date()
 
-            # Extraer datos
-            numero_factura = str(factura_transformada.get('numero_factura', '')).strip()
-            numero_linea = numero_factura  # La línea es el prefijo+número (ej: fem2020)
-            indice_linea = int(factura_transformada.get('indice_linea', 0))  # Índice único de línea
-            codigo_producto = str(factura_transformada.get('codigo_producto_api', '')).strip()
-            producto = str(factura_transformada.get('nombre_producto', '')).strip()
-            nit_cliente = str(factura_transformada.get('nit_comprador', '')).strip()
-            nombre_cliente = str(factura_transformada.get('nombre_comprador', '')).strip()
-            cantidad_original = float(factura_transformada.get('cantidad', 0.0) or 0.0)
-            valor_total = float(factura_transformada.get('valor_total', 0.0) or 0.0)
-            precio_unitario = float(factura_transformada.get('precio_unitario', 0.0) or 0.0)
-            tipo_inventario = str(factura_transformada.get('descripcion', '')).strip()
+            # Extraer datos según formato
+            if es_factura_cruda:
+                prefijo = str(factura.get('f_prefijo', '')).strip()
+                nrodocto = str(factura.get('f_nrodocto', '')).strip()
+                numero_factura = f"{prefijo}{nrodocto}"
+                indice_linea = int(factura.get('_indice_linea', factura.get('indice_linea', 0)) or 0)
+                codigo_producto = str(factura.get('f_cod_item', '')).strip()
+                producto = str(factura.get('f_desc_item', '')).strip()
+                nit_cliente = str(factura.get('f_cliente_desp', '')).strip()
+                nombre_cliente = str(factura.get('f_cliente_fact_razon_soc', '')).strip()
+                cantidad_original = float(factura.get('f_cant_base', 0.0) or 0.0)
+                valor_total = float(factura.get('f_valor_subtotal_local', 0.0) or 0.0)
+                precio_unitario = (valor_total / cantidad_original) if cantidad_original != 0 else 0.0
+                tipo_inventario = str(factura.get('f_cod_tipo_inv') or factura.get('f_tipo_inv') or '').strip()
+            else:
+                numero_factura = str(factura.get('numero_factura', '')).strip()
+                indice_linea = int(factura.get('indice_linea', factura.get('_indice_linea', 0)) or 0)
+                codigo_producto = str(factura.get('codigo_producto_api', '')).strip()
+                producto = str(factura.get('nombre_producto', '')).strip()
+                nit_cliente = str(factura.get('nit_comprador', '')).strip()
+                nombre_cliente = str(factura.get('nombre_comprador', '')).strip()
+                cantidad_original = float(factura.get('cantidad_original', factura.get('cantidad', 0.0)) or 0.0)
+                valor_total = float(factura.get('valor_total', 0.0) or 0.0)
+                precio_unitario = float(factura.get('precio_unitario', 0.0) or 0.0)
+                tipo_inventario = str(factura.get('descripcion', '')).strip()
+
+            numero_linea = numero_factura
             fecha_proceso = fecha_factura
 
             cursor.execute('''
@@ -591,16 +619,61 @@ class NotasCreditoManager:
             Diccionario con información de la aplicación o None si no se pudo aplicar
         """
         try:
+            # Permitir factura en formato transformado o crudo (API)
+            numero_factura = str(factura.get('numero_factura', '')).strip()
+            if not numero_factura:
+                prefijo = str(factura.get('f_prefijo', '')).strip()
+                nrodocto = str(factura.get('f_nrodocto', '')).strip()
+                numero_factura = f"{prefijo}{nrodocto}"
+
+            nit_factura = str(factura.get('nit_comprador') or factura.get('f_cliente_desp', '')).strip()
+            codigo_factura = str(factura.get('codigo_producto_api') or factura.get('f_cod_item', '')).strip()
+
+            # Parsear fecha de factura
+            fecha_factura = factura.get('fecha_factura')
+            if not fecha_factura:
+                fecha_factura = factura.get('f_fecha')
+
+            if isinstance(fecha_factura, str):
+                try:
+                    fecha_factura = datetime.fromisoformat(str(fecha_factura).replace('T00:00:00', '')).date()
+                except:
+                    try:
+                        fecha_factura = datetime.strptime(fecha_factura, '%Y-%m-%d').date()
+                    except:
+                        fecha_factura = datetime.now().date()
+            elif hasattr(fecha_factura, 'date'):
+                fecha_factura = fecha_factura.date() if callable(fecha_factura.date) else fecha_factura
+            else:
+                fecha_factura = datetime.now().date()
+
+            # Índice de línea (si existe) para actualizar solo la línea exacta
+            indice_linea = factura.get('indice_linea', factura.get('_indice_linea'))
+            if indice_linea is not None:
+                try:
+                    indice_linea = int(indice_linea)
+                except (TypeError, ValueError):
+                    indice_linea = None
+
             # Validar cliente y producto
-            if nota['nit_cliente'] != factura['nit_comprador']:
+            if nota['nit_cliente'] != nit_factura:
                 return None
 
-            if nota['codigo_producto'] != factura.get('codigo_producto_api', ''):
+            if nota['codigo_producto'] != codigo_factura:
                 return None
 
             # Obtener valores
-            cantidad_factura = abs(factura.get('cantidad_original', factura.get('cantidad', 0)))
-            valor_factura = abs(factura['valor_total'])
+            cantidad_origen = factura.get('cantidad_original')
+            if cantidad_origen is None:
+                cantidad_origen = factura.get('cantidad')
+            if cantidad_origen is None:
+                cantidad_origen = factura.get('f_cant_base', 0)
+            cantidad_factura = abs(float(cantidad_origen or 0))
+
+            valor_origen = factura.get('valor_total')
+            if valor_origen is None:
+                valor_origen = factura.get('f_valor_subtotal_local', 0)
+            valor_factura = abs(float(valor_origen or 0))
 
             cantidad_nota = abs(nota['cantidad_pendiente'])
             valor_nota = abs(nota['saldo_pendiente'])
@@ -611,7 +684,7 @@ class NotasCreditoManager:
             # =========================================================================
             if valor_nota > valor_factura:
                 logger.warning(
-                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {factura['numero_factura']}: "
+                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {numero_factura}: "
                     f"Valor nota (${valor_nota:,.2f}) > Valor factura (${valor_factura:,.2f})"
                 )
                 return None
@@ -619,7 +692,7 @@ class NotasCreditoManager:
             # La cantidad de la nota no puede superar la cantidad de la factura
             if cantidad_nota > cantidad_factura:
                 logger.warning(
-                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {factura['numero_factura']}: "
+                    f"Nota {nota['numero_nota']} NO puede aplicarse a factura {numero_factura}: "
                     f"Cantidad nota ({cantidad_nota}) > Cantidad factura ({cantidad_factura})"
                 )
                 return None
@@ -632,15 +705,15 @@ class NotasCreditoManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            numero_linea = factura.get('numero_factura', '')
+            numero_linea = numero_factura
 
             cursor.execute('''
                 INSERT INTO aplicaciones_notas
                 (id_nota, numero_nota, numero_factura, numero_linea, fecha_factura,
                  nit_cliente, codigo_producto, cantidad_aplicada, valor_aplicado)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (nota['id'], nota['numero_nota'], factura['numero_factura'], numero_linea,
-                  factura['fecha_factura'], nota['nit_cliente'],
+            ''', (nota['id'], nota['numero_nota'], numero_factura, numero_linea,
+                  fecha_factura, nota['nit_cliente'],
                   nota['codigo_producto'], cantidad_aplicar, valor_aplicar))
 
             # Actualizar saldos de la nota
@@ -669,18 +742,34 @@ class NotasCreditoManager:
             cantidad_restante = cantidad_factura - cantidad_aplicar
             valor_restante = valor_factura - valor_aplicar
 
-            cursor.execute('''
-                UPDATE facturas
-                SET nota_aplicada = 1,
-                    numero_nota_aplicada = ?,
-                    descuento_cantidad = descuento_cantidad + ?,
-                    descuento_valor = descuento_valor + ?,
-                    cantidad_restante = ?,
-                    valor_restante = ?
-                WHERE numero_factura = ? AND codigo_producto = ?
-            ''', (nota['numero_nota'], cantidad_aplicar, valor_aplicar,
-                  cantidad_restante, valor_restante,
-                  factura['numero_factura'], factura.get('codigo_producto_api', '')))
+            if indice_linea is None:
+                cursor.execute('''
+                    UPDATE facturas
+                    SET nota_aplicada = 1,
+                        numero_nota_aplicada = ?,
+                        descuento_cantidad = descuento_cantidad + ?,
+                        descuento_valor = descuento_valor + ?,
+                        cantidad_restante = ?,
+                        valor_restante = ?
+                    WHERE numero_factura = ? AND codigo_producto = ?
+                ''', (nota['numero_nota'], cantidad_aplicar, valor_aplicar,
+                      cantidad_restante, valor_restante, numero_factura, codigo_factura))
+            else:
+                cursor.execute('''
+                    UPDATE facturas
+                    SET nota_aplicada = 1,
+                        numero_nota_aplicada = ?,
+                        descuento_cantidad = descuento_cantidad + ?,
+                        descuento_valor = descuento_valor + ?,
+                        cantidad_restante = ?,
+                        valor_restante = ?
+                    WHERE numero_factura = ?
+                      AND codigo_producto = ?
+                      AND indice_linea = ?
+                      AND fecha_proceso = ?
+                ''', (nota['numero_nota'], cantidad_aplicar, valor_aplicar,
+                      cantidad_restante, valor_restante,
+                      numero_factura, codigo_factura, indice_linea, fecha_factura))
 
             conn.commit()
             conn.close()
@@ -693,7 +782,7 @@ class NotasCreditoManager:
 
             return {
                 'numero_nota': nota['numero_nota'],
-                'numero_factura': factura['numero_factura'],
+                'numero_factura': numero_factura,
                 'numero_linea': numero_linea,
                 'cantidad_aplicada': cantidad_aplicar,
                 'valor_aplicado': valor_aplicar,
@@ -714,7 +803,7 @@ class NotasCreditoManager:
         Procesa la aplicación de notas crédito pendientes a un lote de facturas
 
         Args:
-            facturas: Lista de facturas transformadas
+            facturas: Lista de facturas transformadas o crudas (API)
 
         Returns:
             Lista de aplicaciones realizadas
@@ -722,10 +811,13 @@ class NotasCreditoManager:
         aplicaciones = []
 
         for factura in facturas:
-            notas_pendientes = self.obtener_notas_pendientes(
-                factura['nit_comprador'],
-                factura.get('codigo_producto_api', '')
-            )
+            nit_cliente = str(factura.get('nit_comprador') or factura.get('f_cliente_desp', '')).strip()
+            codigo_producto = str(factura.get('codigo_producto_api') or factura.get('f_cod_item', '')).strip()
+
+            if not nit_cliente or not codigo_producto:
+                continue
+
+            notas_pendientes = self.obtener_notas_pendientes(nit_cliente, codigo_producto)
 
             for nota in notas_pendientes:
                 aplicacion = self.aplicar_nota_a_factura(nota, factura)

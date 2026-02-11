@@ -98,7 +98,7 @@ def procesar_fecha(fecha, config, enviar_email=True):
                 logger.info(f"Notas crédito filtradas (cantidad sin valor): {notas_filtradas}")
 
         # ============================================================
-        # 5. TRANSFORMAR FACTURAS VÁLIDAS
+        # 5. REGISTRAR FACTURAS CRUDAS Y APLICAR NOTAS EN CRUDO
         # ============================================================
         if not facturas_validas:
             logger.warning("No hay facturas válidas para procesar")
@@ -111,39 +111,24 @@ def procesar_fecha(fecha, config, enviar_email=True):
             }
 
         logger.info(f"\n{'='*60}")
-        logger.info(f"TRANSFORMANDO FACTURAS")
-        logger.info(f"{'='*60}")
-
-        excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
-        facturas_transformadas = [
-            excel_processor.transformar_factura(factura)
-            for factura in facturas_validas
-        ]
-
-        logger.info(f"Facturas transformadas: {len(facturas_transformadas)}")
-
-        # ============================================================
-        # 6. REGISTRAR FACTURAS EN BASE DE DATOS
-        # ============================================================
-        logger.info(f"\n{'='*60}")
-        logger.info(f"REGISTRANDO FACTURAS EN BASE DE DATOS")
+        logger.info(f"REGISTRANDO FACTURAS CRUDAS EN BASE DE DATOS")
         logger.info(f"{'='*60}")
 
         facturas_registradas = 0
-        for factura in facturas_transformadas:
+        for factura in facturas_validas:
             if notas_manager.registrar_factura(factura):
                 facturas_registradas += 1
 
-        logger.info(f"Facturas registradas en BD: {facturas_registradas} de {len(facturas_transformadas)}")
+        logger.info(f"Facturas registradas en BD: {facturas_registradas} de {len(facturas_validas)}")
 
         # ============================================================
-        # 7. APLICAR NOTAS CRÉDITO A FACTURAS
+        # 6. APLICAR NOTAS CRÉDITO A FACTURAS CRUDAS
         # ============================================================
         logger.info(f"\n{'='*60}")
-        logger.info(f"APLICANDO NOTAS CRÉDITO A FACTURAS")
+        logger.info(f"APLICANDO NOTAS CRÉDITO A FACTURAS CRUDAS")
         logger.info(f"{'='*60}")
 
-        aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
+        aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_validas)
 
         logger.info(f"Aplicaciones de notas realizadas: {len(aplicaciones)}")
 
@@ -153,6 +138,21 @@ def procesar_fecha(fecha, config, enviar_email=True):
                 logger.info(f"  Nota {app['numero_nota']} -> Factura {app['numero_factura']}: ${app['valor_aplicado']:,.2f}")
             if len(aplicaciones) > 5:
                 logger.info(f"  ... y {len(aplicaciones) - 5} aplicaciones más")
+
+        # ============================================================
+        # 7. TRANSFORMAR FACTURAS VÁLIDAS PARA EXCEL
+        # ============================================================
+        logger.info(f"\n{'='*60}")
+        logger.info(f"TRANSFORMANDO FACTURAS PARA EXCEL")
+        logger.info(f"{'='*60}")
+
+        excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
+        facturas_transformadas = [
+            excel_processor.transformar_factura(factura)
+            for factura in facturas_validas
+        ]
+
+        logger.info(f"Facturas transformadas: {len(facturas_transformadas)}")
 
         # ============================================================
         # 8. GENERAR ARCHIVOS
@@ -312,19 +312,19 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
                 for item in facturas_rechazadas:
                     notas_manager.registrar_factura_rechazada(item['factura'], item['razon_rechazo'])
 
-                # Transformar facturas válidas
+                # Registrar y aplicar notas en facturas crudas
                 if facturas_validas:
+                    for factura in facturas_validas:
+                        notas_manager.registrar_factura(factura)
+
+                    aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_validas)
+                    total_aplicaciones += len(aplicaciones)
+
+                    # Transformar para archivo Excel
                     facturas_transformadas = [
                         excel_processor.transformar_factura(factura)
                         for factura in facturas_validas
                     ]
-
-                    # Registrar y aplicar notas
-                    for factura in facturas_transformadas:
-                        notas_manager.registrar_factura(factura)
-
-                    aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_transformadas)
-                    total_aplicaciones += len(aplicaciones)
 
                     # Acumular facturas
                     todas_facturas_transformadas.extend(facturas_transformadas)
@@ -345,6 +345,8 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
         else:
             logger.warning("No se generaron facturas, no se crea Excel")
 
+        resumen_notas = notas_manager.obtener_resumen_notas()
+
         return {
             'exito': True,
             'mensaje': 'Rango procesado exitosamente',
@@ -355,6 +357,9 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
             'total_notas_credito': total_notas,
             'total_facturas_rechazadas': total_rechazadas,
             'total_aplicaciones': total_aplicaciones,
+            'notas_pendientes': resumen_notas.get('notas_pendientes', 0),
+            'notas_aplicadas': resumen_notas.get('notas_aplicadas', 0),
+            'saldo_pendiente_total': resumen_notas.get('saldo_pendiente_total', 0.0),
             'archivo_generado': output_filename
         }
 
