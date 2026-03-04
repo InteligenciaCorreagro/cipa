@@ -15,7 +15,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-ENV API_PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "python api/app.py"]
+CMD ["python", "api/app.py"]

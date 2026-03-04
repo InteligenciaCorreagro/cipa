@@ -2450,11 +2450,12 @@ def internal_error(error):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('API_PORT', 2500))
+    port = int(os.getenv('PORT', os.getenv('API_PORT', 2500)))
+    debug_enabled = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     logger.info(f"Iniciando API en puerto {port}")
     engine = get_engine()
     if engine == 'mysql':
         logger.info("Base de datos: MySQL")
     else:
         logger.info(f"Base de datos: {DB_PATH}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=debug_enabled)
