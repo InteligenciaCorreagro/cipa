@@ -1,3 +1,4 @@
+import os
 import requests
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -18,8 +19,13 @@ class SiesaAPIClient:
             "conniToken": conni_token,
             "Content-Type": "application/json"
         }
+        self.base_url = os.getenv("SIESA_BASE_URL", self.BASE_URL)
+        self.method = os.getenv("SIESA_METHOD", "GET").upper()
+        self.allow_post_retry = os.getenv("SIESA_ALLOW_POST_RETRY", "0") == "1"
+        alt_urls = os.getenv("SIESA_ALT_URLS", "")
+        self.alt_urls = [u.strip() for u in alt_urls.split(",") if u.strip()]
     
-    def obtener_facturas(self, fecha: datetime) -> List[Dict]:
+    def obtener_facturas(self, fecha: datetime, fecha_fin: datetime = None) -> List[Dict]:
         """
         Obtiene las facturas para una fecha específica
 
@@ -30,36 +36,50 @@ class SiesaAPIClient:
             Lista de facturas en formato JSON
         """
         # Formato YYYY-MM-DD con comillas simples (como espera SIESA)
-        fecha_str = fecha.strftime('%Y-%m-%d')
+        fecha_ini_str = fecha.strftime('%Y-%m-%d')
+        fecha_fin_str = (fecha_fin or fecha).strftime('%Y-%m-%d')
 
         # SIESA espera: FECHA_INI='2025-11-10'|FECHA_FIN='2025-11-10'
         params = {
             "idCompania": "37",
             "descripcion": "Api_Consulta_Fac_Correagro",
-            "parametros": f"FECHA_INI='{fecha_str}'|FECHA_FIN='{fecha_str}'"
+            "parametros": f"FECHA_INI='{fecha_ini_str}'|FECHA_FIN='{fecha_fin_str}'"
         }
 
         try:
-            logger.info(f"Consultando facturas para la fecha: {fecha_str}")
-            logger.info(f"URL: {self.BASE_URL}")
+            logger.info(f"Consultando facturas para la fecha: {fecha_ini_str} a {fecha_fin_str}")
+            logger.info(f"URL: {self.base_url}")
             logger.info(f"Parámetros: {params}")
 
-            response = requests.get(
-                self.BASE_URL,
-                params=params,
-                headers=self.headers,
-                timeout=30
-            )
+            response = self._request(self.method, self.base_url, params)
+
+            if response.status_code in (404, 405) and self.allow_post_retry:
+                logger.warning(f"Respuesta {response.status_code}. Intentando método alterno POST.")
+                response = self._request("POST", self.base_url, params)
+
+            if response.status_code == 404 and self.alt_urls:
+                for alt_url in self.alt_urls:
+                    logger.warning(f"Intentando URL alternativa: {alt_url}")
+                    response = self._request(self.method, alt_url, params)
+                    if response.status_code not in (404, 405):
+                        break
+                    if self.allow_post_retry:
+                        response = self._request("POST", alt_url, params)
+                        if response.status_code not in (404, 405):
+                            break
 
             # Log de la URL completa generada
             logger.info(f"URL completa: {response.url}")
 
             # Intentar obtener el cuerpo de la respuesta antes de raise_for_status
-            if response.status_code == 400:
-                logger.error(f"Error 400 - Respuesta del servidor:")
+            if response.status_code in (400, 404, 405):
+                logger.error(f"Error {response.status_code} - Respuesta del servidor:")
                 try:
                     error_data = response.json()
                     logger.error(f"JSON Error: {json.dumps(error_data, indent=2)}")
+                    if response.status_code == 404 and error_data.get('codigo') == 1:
+                        logger.warning("Consulta sin datos. Continuando sin facturas.")
+                        return []
                 except:
                     logger.error(f"Texto Error: {response.text[:500]}")
 
@@ -136,3 +156,18 @@ class SiesaAPIClient:
         except ValueError as e:
             logger.error(f"Error al procesar respuesta: {e}")
             raise
+
+    def _request(self, method: str, url: str, params: Dict):
+        if method == "POST":
+            return requests.post(
+                url,
+                json=params,
+                headers=self.headers,
+                timeout=30
+            )
+        return requests.get(
+            url,
+            params=params,
+            headers=self.headers,
+            timeout=30
+        )

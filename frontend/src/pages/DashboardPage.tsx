@@ -1,13 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { FileText, DollarSign, AlertCircle, CheckCircle, RefreshCw, ServerCrash, Receipt, TrendingUp, XCircle, TrendingDown, Loader2 } from 'lucide-react'
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { AlertCircle, RefreshCw, ServerCrash, Receipt, Loader2, CheckCircle2, Layers } from 'lucide-react'
+import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api } from '@/services/api'
 
-const COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ef4444']
-
-// Función para formatear moneda
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -17,42 +14,40 @@ const formatCurrency = (value: number) => {
   }).format(value)
 }
 
-// Tipos
 interface Estadisticas {
   total_notas: number
-  total_valor: number
-  saldo_pendiente_total: number
-  notas_aplicadas: number
-}
-
-interface NotaPorEstado {
-  estado: string
-  cantidad: number
   valor_total: number
+  saldo_pendiente_total: number
+  notas_pendientes: number
+  notas_aplicadas: number
+  notas_no_aplicadas: number
+  total_aplicaciones: number
+  monto_total_aplicado: number
 }
 
 interface EstadisticasFacturas {
-  total_facturas: number
   facturas_validas: number
-  facturas_invalidas: number
-  valor_total_transado: number
+  valor_total_facturado: number
+  facturas_registrables: number
+  facturas_no_registrables: number
+  facturas_rechazadas: number
+  aplicaciones_total: number
+  total_aplicado: number
 }
 
 interface Transaccion {
   id: number
+  numero_nota: string
   numero_factura: string
-  fecha_factura: string
-  nombre_cliente: string
-  nit_cliente: string
-  valor_total: number
-  valor_transado: number
-  estado: string
-  tiene_nota_credito: boolean
+  nit_cliente?: string
+  valor_aplicado: number
+  cantidad_aplicada: number
+  cantidad_aplicada_kilos?: number
+  fecha_aplicacion: string
 }
 
 export default function DashboardPage() {
   const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null)
-  const [notasPorEstado, setNotasPorEstado] = useState<NotaPorEstado[]>([])
   const [estadisticasFacturas, setEstadisticasFacturas] = useState<EstadisticasFacturas | null>(null)
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   
@@ -64,20 +59,14 @@ export default function DashboardPage() {
       setLoading(true)
       setError(null)
 
-      // Obtener estadísticas de notas
-      const [statsRes, porEstadoRes, facturasRes, transaccionesRes] = await Promise.allSettled([
+      const [statsRes, facturasRes, transaccionesRes] = await Promise.allSettled([
         api.get('/api/notas/estadisticas'),
-        api.get('/api/notas/por-estado'),
         api.get('/api/facturas/estadisticas'),
-        api.get('/api/facturas/transacciones?limite=10')
+        api.get('/api/facturas/transacciones', { params: { limite: 1200, offset: 0 } })
       ])
 
       if (statsRes.status === 'fulfilled') {
         setEstadisticas(statsRes.value.data)
-      }
-      
-      if (porEstadoRes.status === 'fulfilled') {
-        setNotasPorEstado(porEstadoRes.value.data)
       }
       
       if (facturasRes.status === 'fulfilled') {
@@ -85,13 +74,15 @@ export default function DashboardPage() {
       }
       
       if (transaccionesRes.status === 'fulfilled') {
-        setTransacciones(transaccionesRes.value.data.items || transaccionesRes.value.data || [])
+        const data = transaccionesRes.value.data
+        setTransacciones(data.items || data.ultimas_aplicaciones || [])
       }
 
       setLoading(false)
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error al cargar dashboard:', err)
-      setError(err.message || 'Error al conectar con el servidor')
+      const message = err instanceof Error ? err.message : 'Error al conectar con el servidor'
+      setError(message)
       setLoading(false)
     }
   }
@@ -100,7 +91,38 @@ export default function DashboardPage() {
     fetchData()
   }, [])
 
-  // Manejo de errores
+  const transadoPorMes = useMemo(() => {
+    const map = new Map<string, { mes: string; valor: number }>()
+    for (const item of transacciones) {
+      if (!item.fecha_aplicacion) continue
+      const date = new Date(item.fecha_aplicacion)
+      if (Number.isNaN(date.getTime())) continue
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      const mes = new Intl.DateTimeFormat('es-CO', { month: 'short', year: '2-digit' }).format(date)
+      const acumulado = map.get(key)?.valor || 0
+      map.set(key, { mes, valor: acumulado + Number(item.valor_aplicado || 0) })
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, value]) => value)
+      .slice(-12)
+  }, [transacciones])
+
+  const notasPorEstado = useMemo(() => {
+    return [
+      { estado: 'Pendientes', cantidad: Number(estadisticas?.notas_pendientes || 0) },
+      { estado: 'Aplicadas', cantidad: Number(estadisticas?.notas_aplicadas || 0) },
+      { estado: 'No aplicadas', cantidad: Number(estadisticas?.notas_no_aplicadas || 0) }
+    ]
+  }, [estadisticas])
+
+  const cards = [
+    { label: 'Transado Facturas Buenas', value: formatCurrency(estadisticasFacturas?.valor_total_facturado || 0), icon: Receipt },
+    { label: 'Aplicado por Notas', value: formatCurrency(estadisticas?.monto_total_aplicado || 0), icon: CheckCircle2 },
+    { label: 'Pendiente por Notas', value: formatCurrency(estadisticas?.saldo_pendiente_total || 0), icon: AlertCircle },
+    { label: 'Líneas Registradas', value: estadisticasFacturas?.facturas_validas || 0, icon: Layers }
+  ]
+
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
@@ -111,10 +133,7 @@ export default function DashboardPage() {
           <h3 className="text-xl font-semibold text-gray-900">Error al cargar el dashboard</h3>
           <p className="text-gray-500 max-w-md">{error}</p>
         </div>
-        <Button 
-          onClick={fetchData}
-          className="bg-emerald-600 hover:bg-emerald-700"
-        >
+        <Button onClick={fetchData} className="bg-emerald-600 hover:bg-emerald-700">
           <RefreshCw className="mr-2 h-4 w-4" />
           Reintentar
         </Button>
@@ -133,386 +152,117 @@ export default function DashboardPage() {
     )
   }
 
-  const pieData = notasPorEstado.map(item => ({
-    name: item.estado,
-    value: item.cantidad,
-    monto: item.valor_total
-  }))
-
-  const barData = notasPorEstado.map(item => ({
-    estado: item.estado,
-    cantidad: item.cantidad,
-    valor: Math.abs(item.valor_total)
-  }))
-
-  const stats = [
-    {
-      title: 'Total Notas',
-      value: estadisticas?.total_notas || 0,
-      icon: FileText,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-      borderColor: 'border-blue-200',
-      trend: '+12%',
-      trendUp: true
-    },
-    {
-      title: 'Valor Total',
-      value: formatCurrency(Math.abs(estadisticas?.total_valor || 0)),
-      icon: DollarSign,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      borderColor: 'border-emerald-200',
-      trend: '+8%',
-      trendUp: true
-    },
-    {
-      title: 'Saldo Pendiente',
-      value: formatCurrency(Math.abs(estadisticas?.saldo_pendiente_total || 0)),
-      icon: AlertCircle,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-      borderColor: 'border-orange-200',
-      trend: '-5%',
-      trendUp: false
-    },
-    {
-      title: 'Notas Aplicadas',
-      value: estadisticas?.notas_aplicadas || 0,
-      icon: CheckCircle,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-      borderColor: 'border-purple-200',
-      trend: '+15%',
-      trendUp: true
-    }
-  ]
-
-  const statsFacturas = [
-    {
-      title: 'Total Facturas',
-      value: estadisticasFacturas?.total_facturas || 0,
-      icon: Receipt,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-      borderColor: 'border-blue-200',
-      trend: '+3%',
-      trendUp: true
-    },
-    {
-      title: 'Facturas Válidas',
-      value: estadisticasFacturas?.facturas_validas || 0,
-      icon: CheckCircle,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      borderColor: 'border-emerald-200',
-      trend: '+5%',
-      trendUp: true
-    },
-    {
-      title: 'Facturas Rechazadas',
-      value: estadisticasFacturas?.facturas_invalidas || 0,
-      icon: XCircle,
-      color: 'text-red-600',
-      bgColor: 'bg-red-50',
-      borderColor: 'border-red-200',
-      trend: '-2%',
-      trendUp: false
-    },
-    {
-      title: 'Valor Transado',
-      value: formatCurrency(estadisticasFacturas?.valor_total_transado || 0),
-      icon: TrendingUp,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      borderColor: 'border-emerald-200',
-      trend: '+18%',
-      trendUp: true
-    }
-  ]
-
   return (
-    <div className="space-y-8">
-      {/* Header */}
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1">
-            Panel de control y estadísticas del sistema
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-emerald-900">Dashboard</h1>
+          <p className="text-emerald-700 mt-1">Vista minimalista de notas, facturas y transado mensual</p>
         </div>
-        <Button 
-          onClick={fetchData}
-          variant="outline"
-          size="sm"
-          className="gap-2"
-        >
+        <Button onClick={fetchData} variant="outline" size="sm" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
           <RefreshCw className="h-4 w-4" />
           Actualizar
         </Button>
       </div>
 
-      {/* Stats Notas de Crédito */}
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <div className="w-1 h-6 bg-emerald-600 rounded-full"></div>
-          Notas de Crédito
-        </h2>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {stats.map((stat) => {
-            const Icon = stat.icon
-            return (
-              <Card key={stat.title} className={`border-2 ${stat.borderColor} shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden`}>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`w-14 h-14 rounded-2xl ${stat.bgColor} flex items-center justify-center ring-4 ring-white shadow-sm`}>
-                      <Icon className={`h-7 w-7 ${stat.color}`} />
-                    </div>
-                    <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full ${
-                      stat.trendUp ? 'bg-emerald-50' : 'bg-red-50'
-                    }`}>
-                      {stat.trendUp ? (
-                        <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
-                      ) : (
-                        <TrendingDown className="h-3.5 w-3.5 text-red-600" />
-                      )}
-                      <span className={`text-xs font-semibold ${
-                        stat.trendUp ? 'text-emerald-600' : 'text-red-600'
-                      }`}>
-                        {stat.trend}
-                      </span>
-                    </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => {
+          const Icon = card.icon
+          return (
+            <Card key={card.label} className="border border-emerald-100 shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-emerald-700">{card.label}</p>
+                    <p className="text-2xl font-bold text-emerald-900 mt-1">{card.value}</p>
                   </div>
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">{stat.title}</h3>
-                  <p className="text-3xl font-bold text-gray-900 tracking-tight">{stat.value}</p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
+                  <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                    <Icon className="h-5 w-5 text-emerald-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
-      {/* Stats Facturas */}
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <div className="w-1 h-6 bg-blue-600 rounded-full"></div>
-          Facturas
-        </h2>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {statsFacturas.map((stat) => {
-            const Icon = stat.icon
-            return (
-              <Card key={stat.title} className={`border-2 ${stat.borderColor} shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden`}>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`w-14 h-14 rounded-2xl ${stat.bgColor} flex items-center justify-center ring-4 ring-white shadow-sm`}>
-                      <Icon className={`h-7 w-7 ${stat.color}`} />
-                    </div>
-                    <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full ${
-                      stat.trendUp ? 'bg-emerald-50' : 'bg-red-50'
-                    }`}>
-                      {stat.trendUp ? (
-                        <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
-                      ) : (
-                        <TrendingDown className="h-3.5 w-3.5 text-red-600" />
-                      )}
-                      <span className={`text-xs font-semibold ${
-                        stat.trendUp ? 'text-emerald-600' : 'text-red-600'
-                      }`}>
-                        {stat.trend}
-                      </span>
-                    </div>
-                  </div>
-                  <h3 className="text-sm font-medium text-gray-600 mb-2">{stat.title}</h3>
-                  <p className="text-3xl font-bold text-gray-900 tracking-tight">{stat.value}</p>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Charts */}
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
-            <CardTitle className="text-lg">Distribución por Estado</CardTitle>
-            <CardDescription>Porcentaje de notas según su estado</CardDescription>
+        <Card className="border border-emerald-100 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-emerald-900">Transado Mes a Mes</CardTitle>
+            <CardDescription className="text-emerald-700">Valor aplicado por mes (últimos 12 meses)</CardDescription>
           </CardHeader>
-          <CardContent className="pt-6">
-            {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={(props: any) => `${props.name}: ${(props.percent * 100).toFixed(0)}%`}
-                    outerRadius={110}
-                    fill="#8884d8"
-                    dataKey="value"
-                    strokeWidth={2}
-                    stroke="#fff"
-                  >
-                    {pieData.map((_entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-                    }}
-                  />
-                  <Legend 
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[320px] flex items-center justify-center text-gray-500">
-                No hay datos disponibles
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
-            <CardTitle className="text-lg">Valor por Estado</CardTitle>
-            <CardDescription>Monto total en millones de pesos</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {barData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={barData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                  <XAxis 
-                    dataKey="estado" 
-                    stroke="#6b7280"
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <YAxis 
-                    tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
-                    stroke="#6b7280"
-                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                  />
-                  <Tooltip 
-                    formatter={(value: number) => formatCurrency(value)}
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-                    }}
-                  />
-                  <Bar 
-                    dataKey="valor" 
-                    fill="#10b981" 
-                    radius={[8, 8, 0, 0]}
-                    maxBarSize={60}
-                  />
+          <CardContent>
+            {transadoPorMes.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={transadoPorMes}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" />
+                  <XAxis dataKey="mes" stroke="#047857" />
+                  <YAxis stroke="#047857" tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ border: '1px solid #a7f3d0', borderRadius: '8px' }} />
+                  <Bar dataKey="valor" fill="#059669" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[320px] flex items-center justify-center text-gray-500">
-                No hay datos disponibles
-              </div>
+              <div className="h-[300px] flex items-center justify-center text-emerald-600">No hay transacciones para graficar</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border border-emerald-100 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-emerald-900">Notas por Estado</CardTitle>
+            <CardDescription className="text-emerald-700">Distribución de notas en el sistema</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {notasPorEstado.some((item) => item.cantidad > 0) ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={notasPorEstado}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" />
+                  <XAxis dataKey="estado" stroke="#047857" />
+                  <YAxis stroke="#047857" allowDecimals={false} />
+                  <Tooltip contentStyle={{ border: '1px solid #a7f3d0', borderRadius: '8px' }} />
+                  <Bar dataKey="cantidad" fill="#10b981" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-emerald-600">No hay notas para graficar</div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Transacciones Recientes - Tabla Mejorada */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg">Transacciones Recientes</CardTitle>
-              <CardDescription>Últimas facturas procesadas con notas aplicadas</CardDescription>
-            </div>
-            {transacciones.length > 0 && (
-              <span className="text-sm font-medium text-gray-500">
-                {transacciones.length} registros
-              </span>
-            )}
-          </div>
+      <Card className="border border-emerald-100 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-emerald-900">Últimas Transacciones</CardTitle>
+          <CardDescription className="text-emerald-700">Aplicaciones recientes de notas a facturas</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {transacciones.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50/50 border-b border-gray-200">
-                    <th className="text-left py-4 px-6 font-semibold text-sm text-gray-700">Factura</th>
-                    <th className="text-left py-4 px-6 font-semibold text-sm text-gray-700">Cliente</th>
-                    <th className="text-right py-4 px-6 font-semibold text-sm text-gray-700">Valor Total</th>
-                    <th className="text-right py-4 px-6 font-semibold text-sm text-gray-700">Valor Transado</th>
-                    <th className="text-center py-4 px-6 font-semibold text-sm text-gray-700">Estado</th>
+                  <tr className="bg-emerald-50 border-b border-emerald-100">
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-emerald-800">Nota</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-emerald-800">Factura</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-emerald-800">NIT</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-emerald-800">Valor</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-emerald-800">Cantidad</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-emerald-800">Kilos</th>
+                    <th className="text-center py-3 px-4 text-xs font-semibold text-emerald-800">Fecha</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {transacciones.slice(0, 5).map((t, index) => (
-                    <tr 
-                      key={t.id} 
-                      className="hover:bg-gray-50/50 transition-colors group"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      <td className="py-4 px-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <Receipt className="w-5 h-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-900 group-hover:text-emerald-600 transition-colors">
-                              {t.numero_factura}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(t.fecha_factura).toLocaleDateString('es-CO', {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric'
-                              })}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6">
-                        <div>
-                          <p className="font-medium text-gray-900 truncate max-w-xs">
-                            {t.nombre_cliente}
-                          </p>
-                          <p className="text-xs text-gray-500 font-mono">
-                            {t.nit_cliente}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <span className="font-semibold text-gray-900">
-                          {formatCurrency(t.valor_total)}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <span className="font-bold text-emerald-600">
-                          {formatCurrency(t.valor_transado)}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
-                          t.tiene_nota_credito
-                            ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 border border-blue-200'
-                            : 'bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 border border-gray-200'
-                        }`}>
-                          {t.tiene_nota_credito && (
-                            <CheckCircle className="w-3.5 h-3.5" />
-                          )}
-                          {t.estado}
-                        </span>
+                <tbody className="divide-y divide-emerald-50">
+                  {transacciones.slice(0, 10).map((item) => (
+                    <tr key={item.id} className="hover:bg-emerald-50/40">
+                      <td className="py-3 px-4 text-sm text-emerald-900 font-medium">{item.numero_nota}</td>
+                      <td className="py-3 px-4 text-sm text-emerald-900 font-medium">{item.numero_factura}</td>
+                      <td className="py-3 px-4 text-sm text-emerald-700">{item.nit_cliente || '-'}</td>
+                      <td className="py-3 px-4 text-sm text-right font-semibold text-emerald-700">{formatCurrency(item.valor_aplicado || 0)}</td>
+                      <td className="py-3 px-4 text-sm text-right text-emerald-900">{Number(item.cantidad_aplicada || 0).toFixed(2)}</td>
+                      <td className="py-3 px-4 text-sm text-right text-emerald-900">{Number(item.cantidad_aplicada_kilos || 0).toFixed(2)}</td>
+                      <td className="py-3 px-4 text-xs text-center text-emerald-700">
+                        {new Date(item.fecha_aplicacion).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </td>
                     </tr>
                   ))}
@@ -520,13 +270,7 @@ export default function DashboardPage() {
               </table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Receipt className="w-8 h-8 text-gray-400" />
-              </div>
-              <p className="text-gray-500 font-medium">No hay transacciones registradas</p>
-              <p className="text-sm text-gray-400 mt-1">Las transacciones aparecerán aquí una vez procesadas</p>
-            </div>
+            <div className="text-center py-12 text-emerald-700">No hay transacciones registradas</div>
           )}
         </CardContent>
       </Card>

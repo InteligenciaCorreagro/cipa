@@ -9,8 +9,9 @@ Endpoints para:
 
 import os
 import sys
-import sqlite3
 import logging
+import time
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, request, jsonify
@@ -18,6 +19,8 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, get_jwt
 )
+from flask_jwt_extended.utils import decode_token
+import pyotp
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -29,11 +32,21 @@ BACKEND_DIR = API_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(API_DIR))
 
+try:
+    from db import get_connection, get_engine, get_sqlite_path
+except ImportError:
+    from backend.db import get_connection, get_engine, get_sqlite_path
+
 # Imports locales
 try:
     from auth import AuthManager
 except ImportError:
     from api.auth import AuthManager
+
+try:
+    from core.notas_credito_manager import NotasCreditoManager
+except ImportError:
+    from backend.core.notas_credito_manager import NotasCreditoManager
 
 # Configuración
 load_dotenv()
@@ -50,8 +63,10 @@ app = Flask(__name__)
 # JWT Configuration
 JWT_SECRET = os.getenv('JWT_SECRET_KEY', 'CHANGE-THIS-SECRET-KEY-IN-PRODUCTION')
 app.config['JWT_SECRET_KEY'] = JWT_SECRET
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+ACCESS_TOKEN_HOURS = int(os.getenv('JWT_ACCESS_TOKEN_HOURS', '8'))
+REFRESH_TOKEN_DAYS = int(os.getenv('JWT_REFRESH_TOKEN_DAYS', '45'))
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=ACCESS_TOKEN_HOURS)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=REFRESH_TOKEN_DAYS)
 
 jwt = JWTManager(app)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -74,23 +89,65 @@ except Exception:
             return decorator
     limiter = DummyLimiter()
 
-# Managers
 auth_manager = AuthManager()
 
 PROJECT_ROOT = BACKEND_DIR.parent
-DB_PATH = Path(os.getenv('DB_PATH', str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
+DB_PATH = Path(get_sqlite_path(str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
+notas_manager = NotasCreditoManager()
 
+_cache_store = {}
+
+def _get_cache(key: str):
+    item = _cache_store.get(key)
+    if not item:
+        return None
+    if item['expires'] < time.time():
+        _cache_store.pop(key, None)
+        return None
+    return item['value']
+
+def _set_cache(key: str, value, ttl_seconds: int):
+    _cache_store[key] = {
+        'value': value,
+        'expires': time.time() + ttl_seconds
+    }
+
+def registrar_log(entidad: str, accion: str, entidad_id: str, usuario: str, payload: dict):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (entidad, accion, entidad_id, usuario, json.dumps(payload, ensure_ascii=False)))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def _hash_nit(nit: str) -> str:
+    return nit or ''
+
+def _decrypt_value(value: str) -> str:
+    return value or ''
 
 def get_db_connection():
-    """Obtiene conexión a la base de datos"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+    return get_connection()
+
+def _require_write_role():
+    claims = get_jwt()
+    if claims.get('rol') not in ('admin', 'editor'):
+        return None, jsonify({"error": "No tiene permisos para modificar información"}), 403
+    return claims, None, None
 
 
 # JWT ERROR HANDLERS
 @jwt.expired_token_loader
 def expired_token_callback(jwt_header, jwt_payload):
+    jti = jwt_payload.get('jti')
+    token_type = jwt_payload.get('type')
+    if jti and token_type == 'refresh':
+        auth_manager.invalidar_sesion(jti)
     return jsonify({
         "error": "Token expirado",
         "message": "Tu sesión ha expirado. Por favor, inicia sesión nuevamente."
@@ -113,6 +170,14 @@ def missing_token_callback(error):
     }), 401
 
 
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    jti = jwt_payload.get('jti')
+    if not jti:
+        return True
+    return not auth_manager.verificar_sesion_activa(jti)
+
+
 # ENDPOINTS DE AUTENTICACIÓN
 @app.route('/api/auth/login', methods=['POST'])
 @limiter.limit("5 per minute")
@@ -125,12 +190,21 @@ def login():
 
     username = data['username']
     password = data['password']
+    otp = data.get('otp')
     ip_address = request.remote_addr or '0.0.0.0'
 
     autenticado, usuario, mensaje = auth_manager.autenticar(username, password, ip_address)
 
     if not autenticado:
         return jsonify({"error": mensaje}), 401
+
+    twofa = auth_manager.obtener_2fa(usuario['id'])
+    if twofa and twofa.get('habilitado'):
+        if not otp:
+            return jsonify({"error": "Se requiere OTP", "requires_2fa": True}), 206
+        totp = pyotp.TOTP(twofa['secreto'])
+        if not totp.verify(str(otp).strip()):
+            return jsonify({"error": "OTP inválido", "requires_2fa": True}), 401
 
     user_id_str = str(usuario['id'])
 
@@ -148,6 +222,20 @@ def login():
         additional_claims={'username': usuario['username']}
     )
 
+    try:
+        decoded_access = decode_token(access_token)
+        decoded_refresh = decode_token(refresh_token)
+        auth_manager.registrar_sesion(
+            usuario['id'],
+            decoded_access.get('jti'),
+            decoded_refresh.get('jti'),
+            ip_address,
+            request.headers.get('User-Agent', ''),
+            expires_in=REFRESH_TOKEN_DAYS * 24 * 3600
+        )
+    except Exception:
+        pass
+
     return jsonify({
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -156,7 +244,9 @@ def login():
             "username": usuario['username'],
             "email": usuario['email'],
             "rol": usuario['rol']
-        }
+        },
+        "requires_2fa": False,
+        "expires_in_seconds": ACCESS_TOKEN_HOURS * 3600
     }), 200
 
 
@@ -191,6 +281,13 @@ def refresh():
 @jwt_required()
 def logout():
     """Cerrar sesión"""
+    claims = get_jwt()
+    jti = claims.get('jti')
+    user_id = claims.get('user_id')
+    if jti:
+        auth_manager.invalidar_sesion(jti)
+    if user_id:
+        auth_manager.invalidar_sesiones_usuario(int(user_id))
     return jsonify({"mensaje": "Sesión cerrada exitosamente"}), 200
 
 
@@ -207,6 +304,7 @@ def change_password():
     username = claims.get('username')
 
     if auth_manager.cambiar_contraseña(username, data['nueva_contraseña']):
+        registrar_log('usuarios', 'cambiar_contraseña', username, username, {})
         return jsonify({"mensaje": "Contraseña cambiada exitosamente"}), 200
     return jsonify({"error": "Error al cambiar contraseña"}), 500
 
@@ -235,11 +333,96 @@ def register_user():
         return jsonify({"error": "La contraseña debe tener al menos 6 caracteres"}), 400
 
     if auth_manager.crear_usuario(username, password, email, rol):
+        registrar_log('usuarios', 'crear', username, claims.get('username'), {
+            'username': username,
+            'email': email,
+            'rol': rol
+        })
         return jsonify({
             "mensaje": "Usuario creado exitosamente",
             "usuario": {"username": username, "email": email, "rol": rol}
         }), 201
     return jsonify({"error": "Error al crear usuario. Puede que ya exista."}), 400
+
+
+@app.route('/api/auth/2fa/setup', methods=['POST'])
+@jwt_required()
+def setup_2fa():
+    try:
+        claims = get_jwt()
+        user_id = claims.get('user_id')
+        username = claims.get('username')
+        if not user_id:
+            return jsonify({"error": "Usuario inválido"}), 400
+
+        secret = pyotp.random_base32()
+        auth_manager.guardar_2fa(int(user_id), secret, False)
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(name=username, issuer_name='CIPA')
+        registrar_log('2fa', 'setup', str(user_id), username, {})
+        return jsonify({"secret": secret, "otpauth_uri": uri}), 200
+    except Exception as e:
+        logger.error(f"Error en setup_2fa: {e}")
+        return jsonify({"error": "Error al configurar 2FA"}), 500
+
+
+@app.route('/api/auth/2fa/enable', methods=['POST'])
+@jwt_required()
+def enable_2fa():
+    try:
+        data = request.get_json() or {}
+        otp = data.get('otp')
+        claims = get_jwt()
+        user_id = claims.get('user_id')
+        username = claims.get('username')
+        if not otp or not user_id:
+            return jsonify({"error": "OTP requerido"}), 400
+        record = auth_manager.obtener_2fa(int(user_id))
+        if not record:
+            return jsonify({"error": "2FA no configurado"}), 400
+        totp = pyotp.TOTP(record['secreto'])
+        if not totp.verify(str(otp).strip()):
+            return jsonify({"error": "OTP inválido"}), 401
+        auth_manager.actualizar_2fa(int(user_id), True)
+        registrar_log('2fa', 'enable', str(user_id), username, {})
+        return jsonify({"mensaje": "2FA habilitado"}), 200
+    except Exception as e:
+        logger.error(f"Error en enable_2fa: {e}")
+        return jsonify({"error": "Error al habilitar 2FA"}), 500
+
+
+@app.route('/api/auth/2fa/disable', methods=['POST'])
+@jwt_required()
+def disable_2fa():
+    try:
+        claims = get_jwt()
+        user_id = claims.get('user_id')
+        username = claims.get('username')
+        if not user_id:
+            return jsonify({"error": "Usuario inválido"}), 400
+        auth_manager.actualizar_2fa(int(user_id), False)
+        registrar_log('2fa', 'disable', str(user_id), username, {})
+        return jsonify({"mensaje": "2FA deshabilitado"}), 200
+    except Exception as e:
+        logger.error(f"Error en disable_2fa: {e}")
+        return jsonify({"error": "Error al deshabilitar 2FA"}), 500
+
+
+@app.route('/api/auth/2fa/status', methods=['GET'])
+@jwt_required()
+def status_2fa():
+    try:
+        claims = get_jwt()
+        user_id = claims.get('user_id')
+        if not user_id:
+            return jsonify({"error": "Usuario inválido"}), 400
+        record = auth_manager.obtener_2fa(int(user_id))
+        return jsonify({
+            "configurado": record is not None,
+            "habilitado": bool(record.get('habilitado')) if record else False
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en status_2fa: {e}")
+        return jsonify({"error": "Error al consultar 2FA"}), 500
 
 
 @app.route('/api/auth/users', methods=['GET'])
@@ -250,7 +433,7 @@ def list_users():
     if claims.get('rol') != 'admin':
         return jsonify({"error": "No tiene permisos para ver usuarios"}), 403
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -278,12 +461,19 @@ def list_users():
 @app.route('/api/facturas', methods=['GET'])
 @jwt_required()
 def listar_facturas():
-    """Listar facturas válidas con filtros"""
     try:
         nit_cliente = request.args.get('nit_cliente')
         fecha_desde = request.args.get('fecha_desde')
         fecha_hasta = request.args.get('fecha_hasta')
         con_nota = request.args.get('con_nota')
+        codigo_factura = request.args.get('codigo_factura')
+        numero_factura = request.args.get('numero_factura')
+        nombre_cliente = request.args.get('nombre_cliente')
+        estado = request.args.get('estado')
+        registrable = request.args.get('registrable')
+        search = request.args.get('search')
+        orden = request.args.get('orden', 'fecha_factura')
+        direccion = request.args.get('direccion', 'DESC')
         limite = int(request.args.get('limite', 100))
         offset = int(request.args.get('offset', 0))
 
@@ -291,8 +481,8 @@ def listar_facturas():
         params = []
 
         if nit_cliente:
-            query += " AND nit_cliente = ?"
-            params.append(nit_cliente)
+            query += " AND nit_hash = ?"
+            params.append(_hash_nit(nit_cliente))
 
         if fecha_desde:
             query += " AND fecha_factura >= ?"
@@ -302,20 +492,62 @@ def listar_facturas():
             query += " AND fecha_factura <= ?"
             params.append(fecha_hasta)
 
+        if codigo_factura:
+            query += " AND codigo_factura = ?"
+            params.append(codigo_factura)
+
+        if numero_factura:
+            query += " AND numero_factura = ?"
+            params.append(numero_factura)
+
+        if nombre_cliente:
+            query += " AND nombre_cliente_encrypted LIKE ?"
+            params.append(f"%{nombre_cliente}%")
+
+        if estado:
+            query += " AND estado = ?"
+            params.append(estado)
+
+        if registrable is not None:
+            if registrable.lower() == 'true' or registrable == '1':
+                query += " AND registrable = 1"
+            elif registrable.lower() == 'false' or registrable == '0':
+                query += " AND registrable = 0"
+
         if con_nota is not None:
             if con_nota.lower() == 'true' or con_nota == '1':
-                query += " AND nota_aplicada = 1"
+                query += " AND EXISTS (SELECT 1 FROM aplicaciones_notas a WHERE a.numero_factura = facturas.numero_factura)"
             elif con_nota.lower() == 'false' or con_nota == '0':
-                query += " AND nota_aplicada = 0"
+                query += " AND NOT EXISTS (SELECT 1 FROM aplicaciones_notas a WHERE a.numero_factura = facturas.numero_factura)"
 
-        query += " ORDER BY fecha_factura DESC LIMIT ? OFFSET ?"
+        if search:
+            like = f"%{search}%"
+            query += " AND (numero_factura LIKE ? OR nit_encrypted LIKE ? OR nombre_cliente_encrypted LIKE ? OR codigo_factura LIKE ?)"
+            params.extend([like, like, like, like])
+
+        orden_map = {
+            'fecha_factura': 'fecha_factura',
+            'numero_factura': 'numero_factura',
+            'valor_total': 'valor_total',
+            'nombre_cliente': 'nombre_cliente_encrypted',
+            'nit_cliente': 'nit_encrypted',
+            'codigo_factura': 'codigo_factura'
+        }
+        orden_col = orden_map.get(orden, 'fecha_factura')
+        direccion_sql = 'ASC' if str(direccion).upper() == 'ASC' else 'DESC'
+        query += f" ORDER BY {orden_col} {direccion_sql} LIMIT ? OFFSET ?"
         params.extend([limite, offset])
 
         conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute(query, params)
-        facturas = [dict(row) for row in cursor.fetchall()]
+        facturas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            facturas.append(item)
 
         query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
         cursor.execute(query_count, params[:-2])
@@ -339,7 +571,6 @@ def listar_facturas():
 @app.route('/api/facturas/<int:factura_id>', methods=['GET'])
 @jwt_required()
 def obtener_factura(factura_id):
-    """Obtener detalles de una factura"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -352,6 +583,8 @@ def obtener_factura(factura_id):
             return jsonify({"error": "Factura no encontrada"}), 404
 
         factura_dict = dict(factura)
+        factura_dict['nit_cliente'] = _decrypt_value(factura_dict.get('nit_encrypted'))
+        factura_dict['nombre_cliente'] = _decrypt_value(factura_dict.get('nombre_cliente_encrypted'))
 
         # Obtener aplicaciones de notas
         cursor.execute('''
@@ -370,6 +603,153 @@ def obtener_factura(factura_id):
         return jsonify({"error": "Error al obtener factura"}), 500
 
 
+@app.route('/api/facturas', methods=['POST'])
+@jwt_required()
+def crear_factura():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        if notas_manager.registrar_factura(data, usuario):
+            return jsonify({"mensaje": "Factura creada"}), 201
+        return jsonify({"error": "No se pudo crear la factura"}), 400
+    except Exception as e:
+        logger.error(f"Error en crear_factura: {e}")
+        return jsonify({"error": "Error al crear factura"}), 500
+
+
+@app.route('/api/facturas/<int:factura_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_factura(factura_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM facturas WHERE id = ?', (factura_id,))
+        factura = cursor.fetchone()
+        if not factura:
+            conn.close()
+            return jsonify({"error": "Factura no encontrada"}), 404
+
+        numero_factura = str(data.get('numero_factura', factura['numero_factura'])).strip()
+        codigo_factura = str(data.get('codigo_factura', factura['codigo_factura'])).strip()
+        codigo_producto = str(data.get('codigo_producto', factura['codigo_producto'])).strip()
+        nombre_producto = str(data.get('nombre_producto', factura['nombre_producto'])).strip()
+        nit_cliente = str(data.get('nit_cliente', _decrypt_value(factura['nit_encrypted']))).strip()
+        nombre_cliente = str(data.get('nombre_cliente', _decrypt_value(factura['nombre_cliente_encrypted']))).strip()
+        cantidad_original = float(data.get('cantidad_original', factura['cantidad_original']) or 0.0)
+        valor_total = float(data.get('valor_total', factura['valor_total']) or 0.0)
+        fecha_factura = data.get('fecha_factura', factura['fecha_factura'])
+
+        if not numero_factura or not codigo_producto or not nit_cliente:
+            conn.close()
+            return jsonify({"error": "Datos incompletos"}), 400
+
+        notas_manager._validate_plain_text(nit_cliente, 'nit_cliente', numero_factura)
+        notas_manager._validate_plain_text(nombre_cliente, 'nombre_cliente', numero_factura)
+        notas_manager._validate_nit(nit_cliente, numero_factura)
+
+        nit_hash = _hash_nit(nit_cliente)
+        nit_enc = nit_cliente
+        nombre_enc = nombre_cliente
+
+        codigo_factura_norm = codigo_factura.lower()
+        registrable = 1
+        total_repeticiones = 1
+        suma_total_repeticiones = valor_total
+
+        if codigo_factura_norm == 'abc123':
+            cursor.execute('''
+                SELECT COUNT(*), COALESCE(SUM(valor_total), 0)
+                FROM facturas WHERE codigo_factura = ? AND id != ?
+            ''', (codigo_factura, factura_id))
+            count, suma = cursor.fetchone()
+            if count >= 5:
+                conn.close()
+                return jsonify({"error": "Límite de repeticiones alcanzado"}), 400
+            total_repeticiones = count + 1
+            suma_total_repeticiones = float(suma or 0) + valor_total
+            registrable = 1 if suma_total_repeticiones > 524000 else 0
+        else:
+            if valor_total < 524000:
+                conn.close()
+                return jsonify({"error": "Monto mínimo no alcanzado"}), 400
+
+        cursor.execute('''
+            UPDATE facturas
+            SET numero_factura = ?, codigo_factura = ?, codigo_producto = ?, nombre_producto = ?,
+                nit_encrypted = ?, nit_hash = ?, nombre_cliente_encrypted = ?,
+                cantidad_original = ?, valor_total = ?, cantidad_restante = ?, valor_restante = ?,
+                registrable = ?, total_repeticiones = ?, suma_total_repeticiones = ?, fecha_factura = ?
+            WHERE id = ?
+        ''', (
+            numero_factura, codigo_factura, codigo_producto, nombre_producto,
+            nit_enc, nit_hash, nombre_enc,
+            cantidad_original, valor_total, cantidad_original, valor_total,
+            registrable, total_repeticiones, suma_total_repeticiones, fecha_factura,
+            factura_id
+        ))
+
+        if codigo_factura_norm == 'abc123':
+            cursor.execute('''
+                UPDATE facturas
+                SET total_repeticiones = ?, suma_total_repeticiones = ?, registrable = ?
+                WHERE codigo_factura = ?
+            ''', (total_repeticiones, suma_total_repeticiones, registrable, codigo_factura))
+
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('factura', 'actualizar', str(factura_id), usuario, json.dumps(data, ensure_ascii=False)))
+
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Factura actualizada"}), 200
+
+    except Exception as e:
+        logger.error(f"Error en actualizar_factura: {e}")
+        return jsonify({"error": "Error al actualizar factura"}), 500
+
+
+@app.route('/api/facturas/<int:factura_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_factura(factura_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        usuario = claims.get('username')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT numero_factura FROM facturas WHERE id = ?', (factura_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Factura no encontrada"}), 404
+
+        cursor.execute('DELETE FROM facturas WHERE id = ?', (factura_id,))
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('factura', 'eliminar', str(factura_id), usuario, json.dumps({'numero_factura': row['numero_factura']}, ensure_ascii=False)))
+
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Factura eliminada"}), 200
+    except Exception as e:
+        logger.error(f"Error en eliminar_factura: {e}")
+        return jsonify({"error": "Error al eliminar factura"}), 500
+
+
 @app.route('/api/facturas/estadisticas', methods=['GET'])
 @jwt_required()
 def estadisticas_facturas():
@@ -385,11 +765,16 @@ def estadisticas_facturas():
         stats['facturas_validas'] = row[0] or 0
         stats['valor_total_facturado'] = row[1] or 0
 
-        cursor.execute('SELECT COUNT(*) FROM facturas WHERE nota_aplicada = 1')
-        stats['facturas_con_notas'] = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE registrable = 1')
+        stats['facturas_registrables'] = cursor.fetchone()[0] or 0
 
-        cursor.execute('SELECT SUM(descuento_valor) FROM facturas WHERE nota_aplicada = 1')
-        stats['total_descontado'] = cursor.fetchone()[0] or 0
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE registrable = 0')
+        stats['facturas_no_registrables'] = cursor.fetchone()[0] or 0
+
+        cursor.execute('SELECT COUNT(*), SUM(valor_aplicado) FROM aplicaciones_notas')
+        row = cursor.fetchone()
+        stats['aplicaciones_total'] = row[0] or 0
+        stats['total_aplicado'] = row[1] or 0
 
         cursor.execute('SELECT COUNT(*) FROM facturas_rechazadas')
         stats['facturas_rechazadas'] = cursor.fetchone()[0]
@@ -403,6 +788,45 @@ def estadisticas_facturas():
     except Exception as e:
         logger.error(f"Error en estadisticas_facturas: {e}")
         return jsonify({"error": "Error al obtener estadísticas"}), 500
+
+
+@app.route('/api/facturas/transacciones', methods=['GET'])
+@jwt_required()
+def listar_transacciones():
+    try:
+        limite = int(request.args.get('limite', 50))
+        offset = int(request.args.get('offset', 0))
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT a.id, a.numero_nota, a.numero_factura, a.cantidad_aplicada, a.valor_aplicado, a.fecha_aplicacion,
+                   n.nit_encrypted
+            FROM aplicaciones_notas a
+            LEFT JOIN notas_credito n ON n.id = a.id_nota
+            ORDER BY a.fecha_aplicacion DESC
+            LIMIT ? OFFSET ?
+        ''', (limite, offset))
+        items = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            items.append(item)
+
+        cursor.execute('SELECT COUNT(*) FROM aplicaciones_notas')
+        total = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({
+            "items": items,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en listar_transacciones: {e}")
+        return jsonify({"error": "Error al obtener transacciones"}), 500
 
 
 @app.route('/api/facturas/rechazadas', methods=['GET'])
@@ -433,7 +857,12 @@ def listar_facturas_rechazadas():
         cursor = conn.cursor()
 
         cursor.execute(query, params)
-        rechazadas = [dict(row) for row in cursor.fetchall()]
+        rechazadas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            rechazadas.append(item)
 
         query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
         cursor.execute(query_count, params[:-2])
@@ -474,8 +903,8 @@ def listar_notas():
             params.append(estado)
 
         if nit_cliente:
-            query += " AND nit_cliente = ?"
-            params.append(nit_cliente)
+            query += " AND nit_hash = ?"
+            params.append(_hash_nit(nit_cliente))
 
         if fecha_desde:
             query += " AND fecha_nota >= ?"
@@ -492,7 +921,12 @@ def listar_notas():
         cursor = conn.cursor()
 
         cursor.execute(query, params)
-        notas = [dict(row) for row in cursor.fetchall()]
+        notas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            notas.append(item)
 
         query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
         cursor.execute(query_count, params[:-2])
@@ -529,6 +963,8 @@ def obtener_nota(nota_id):
             return jsonify({"error": "Nota no encontrada"}), 404
 
         nota_dict = dict(nota)
+        nota_dict['nit_cliente'] = _decrypt_value(nota_dict.get('nit_encrypted'))
+        nota_dict['nombre_cliente'] = _decrypt_value(nota_dict.get('nombre_cliente_encrypted'))
 
         # Obtener historial de aplicaciones
         cursor.execute('''
@@ -538,6 +974,13 @@ def obtener_nota(nota_id):
         ''', (nota_id,))
 
         nota_dict['aplicaciones'] = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute('''
+            SELECT * FROM log_motivos_no_aplicacion
+            WHERE id_nota = ?
+            ORDER BY fecha_registro DESC
+        ''', (nota_id,))
+        nota_dict['motivos_no_aplicacion'] = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
         return jsonify(nota_dict), 200
@@ -547,11 +990,259 @@ def obtener_nota(nota_id):
         return jsonify({"error": "Error al obtener nota"}), 500
 
 
+@app.route('/api/notas', methods=['POST'])
+@jwt_required()
+def crear_nota():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        if notas_manager.registrar_nota_credito(data, usuario):
+            return jsonify({"mensaje": "Nota creada"}), 201
+        return jsonify({"error": "No se pudo crear la nota"}), 400
+    except Exception as e:
+        logger.error(f"Error en crear_nota: {e}")
+        return jsonify({"error": "Error al crear nota"}), 500
+
+
+@app.route('/api/notas/<int:nota_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_nota(nota_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM notas_credito WHERE id = ?', (nota_id,))
+        nota = cursor.fetchone()
+        if not nota:
+            conn.close()
+            return jsonify({"error": "Nota no encontrada"}), 404
+
+        numero_nota = str(data.get('numero_nota', nota['numero_nota'])).strip()
+        codigo_producto = str(data.get('codigo_producto', nota['codigo_producto'])).strip()
+        nombre_producto = str(data.get('nombre_producto', nota['nombre_producto'])).strip()
+        nit_cliente = str(data.get('nit_cliente', _decrypt_value(nota['nit_encrypted']))).strip()
+        nombre_cliente = str(data.get('nombre_cliente', _decrypt_value(nota['nombre_cliente_encrypted']))).strip()
+        valor_total = float(data.get('valor_total', nota['valor_total']) or 0.0)
+        cantidad = float(data.get('cantidad', nota['cantidad']) or 0.0)
+        estado = str(data.get('estado', nota['estado'])).strip()
+        es_agente = 1 if str(data.get('es_agente', nota['es_agente'])).lower() in ('1', 'true', 'si', 'sí') else 0
+
+        notas_manager._validate_plain_text(nit_cliente, 'nit_cliente', numero_nota)
+        notas_manager._validate_plain_text(nombre_cliente, 'nombre_cliente', numero_nota)
+        notas_manager._validate_nit(nit_cliente, numero_nota)
+
+        nit_hash = _hash_nit(nit_cliente)
+        nit_enc = nit_cliente
+        nombre_enc = nombre_cliente
+
+        cursor.execute('''
+            UPDATE notas_credito
+            SET numero_nota = ?, codigo_producto = ?, nombre_producto = ?,
+                nit_encrypted = ?, nit_hash = ?, nombre_cliente_encrypted = ?,
+                valor_total = ?, cantidad = ?, saldo_pendiente = ?, cantidad_pendiente = ?,
+                estado = ?, es_agente = ?
+            WHERE id = ?
+        ''', (
+            numero_nota, codigo_producto, nombre_producto,
+            nit_enc, nit_hash, nombre_enc,
+            valor_total, cantidad, valor_total, cantidad,
+            estado, es_agente, nota_id
+        ))
+
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('nota_credito', 'actualizar', str(nota_id), usuario, json.dumps(data, ensure_ascii=False)))
+
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Nota actualizada"}), 200
+    except Exception as e:
+        logger.error(f"Error en actualizar_nota: {e}")
+        return jsonify({"error": "Error al actualizar nota"}), 500
+
+
+@app.route('/api/notas/<int:nota_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_nota(nota_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        usuario = claims.get('username')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT numero_nota FROM notas_credito WHERE id = ?', (nota_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Nota no encontrada"}), 404
+
+        cursor.execute('DELETE FROM notas_credito WHERE id = ?', (nota_id,))
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('nota_credito', 'eliminar', str(nota_id), usuario, json.dumps({'numero_nota': row['numero_nota']}, ensure_ascii=False)))
+
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Nota eliminada"}), 200
+    except Exception as e:
+        logger.error(f"Error en eliminar_nota: {e}")
+        return jsonify({"error": "Error al eliminar nota"}), 500
+
+
+@app.route('/api/notas/aplicar', methods=['POST'])
+@jwt_required()
+def aplicar_nota():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        nota_id = data.get('nota_id')
+        numero_factura = data.get('numero_factura')
+        codigo_producto = data.get('codigo_producto')
+        indice_linea = data.get('indice_linea', 0)
+
+        if not nota_id or not numero_factura or not codigo_producto:
+            return jsonify({"error": "Datos incompletos"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM notas_credito WHERE id = ?', (nota_id,))
+        nota = cursor.fetchone()
+        if not nota:
+            conn.close()
+            return jsonify({"error": "Nota no encontrada"}), 404
+
+        cursor.execute('''
+            SELECT * FROM facturas
+            WHERE numero_factura = ? AND codigo_producto = ? AND indice_linea = ?
+        ''', (numero_factura, codigo_producto, indice_linea))
+        factura = cursor.fetchone()
+        if not factura:
+            conn.close()
+            return jsonify({"error": "Factura no encontrada"}), 404
+
+        nota_dict = dict(nota)
+        nota_dict['nit_cliente'] = _decrypt_value(nota_dict.get('nit_encrypted'))
+        nota_dict['nombre_cliente'] = _decrypt_value(nota_dict.get('nombre_cliente_encrypted'))
+
+        factura_dict = dict(factura)
+        factura_dict['nit_comprador'] = _decrypt_value(factura_dict.get('nit_encrypted'))
+        factura_dict['nombre_comprador'] = _decrypt_value(factura_dict.get('nombre_cliente_encrypted'))
+        factura_dict['codigo_producto_api'] = factura_dict.get('codigo_producto')
+        factura_dict['cantidad_original'] = factura_dict.get('cantidad_restante')
+        factura_dict['valor_total'] = factura_dict.get('valor_restante')
+
+        conn.close()
+
+        resultado = notas_manager.aplicar_nota_a_factura(nota_dict, factura_dict, usuario)
+        if not resultado:
+            return jsonify({"error": "No se pudo aplicar la nota"}), 400
+        return jsonify(resultado), 200
+
+    except Exception as e:
+        logger.error(f"Error en aplicar_nota: {e}")
+        return jsonify({"error": "Error al aplicar nota"}), 500
+
+
+@app.route('/api/notas/no-aplicadas', methods=['GET'])
+@jwt_required()
+def listar_no_aplicadas():
+    try:
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM log_motivos_no_aplicacion
+            ORDER BY fecha_registro DESC LIMIT ? OFFSET ?
+        ''', (limite, offset))
+        items = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute('SELECT COUNT(*) FROM log_motivos_no_aplicacion')
+        total = cursor.fetchone()[0]
+
+        conn.close()
+        return jsonify({"items": items, "total": total, "limite": limite, "offset": offset}), 200
+    except Exception as e:
+        logger.error(f"Error en listar_no_aplicadas: {e}")
+        return jsonify({"error": "Error al obtener no aplicadas"}), 500
+
+
+@app.route('/api/notas/no-aplicadas', methods=['POST'])
+@jwt_required()
+def registrar_no_aplicada():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        usuario = claims.get('username')
+
+        nota_id = data.get('nota_id')
+        motivo = data.get('motivo')
+        numero_factura = data.get('numero_factura')
+        detalle = data.get('detalle')
+
+        if not nota_id or not motivo:
+            return jsonify({"error": "Datos incompletos"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM notas_credito WHERE id = ?', (nota_id,))
+        nota = cursor.fetchone()
+        if not nota:
+            conn.close()
+            return jsonify({"error": "Nota no encontrada"}), 404
+
+        cursor.execute('''
+            INSERT INTO log_motivos_no_aplicacion
+            (id_nota, numero_nota, numero_factura, motivo, detalle)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (nota_id, nota['numero_nota'], numero_factura, motivo, detalle))
+
+        cursor.execute('''
+            UPDATE notas_credito SET estado = 'NO_APLICADA' WHERE id = ?
+        ''', (nota_id,))
+
+        cursor.execute('''
+            INSERT INTO audit_logs (entidad, accion, entidad_id, usuario, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('nota_credito', 'no_aplicada', str(nota_id), usuario, json.dumps({'motivo': motivo}, ensure_ascii=False)))
+
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Motivo registrado"}), 201
+    except Exception as e:
+        logger.error(f"Error en registrar_no_aplicada: {e}")
+        return jsonify({"error": "Error al registrar motivo"}), 500
+
+
 @app.route('/api/notas/estadisticas', methods=['GET'])
 @jwt_required()
 def estadisticas_notas():
     """Estadísticas de notas de crédito"""
     try:
+        cached = _get_cache('notas_stats')
+        if cached:
+            return jsonify(cached), 200
+
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -567,11 +1258,11 @@ def estadisticas_notas():
             FROM notas_credito GROUP BY estado
         ''')
         for row in cursor.fetchall():
-            estado_lower = row[0].lower()
-            stats[f'notas_{estado_lower}'] = row[1]
-            stats[f'saldo_{estado_lower}'] = row[2] or 0
+            estado_key = row[0].lower()
+            stats[f'notas_{estado_key}'] = row[1]
+            stats[f'saldo_{estado_key}'] = row[2] or 0
 
-        cursor.execute('SELECT SUM(saldo_pendiente) FROM notas_credito WHERE estado != "APLICADA"')
+        cursor.execute('SELECT SUM(saldo_pendiente) FROM notas_credito WHERE estado = "PENDIENTE"')
         stats['saldo_pendiente_total'] = cursor.fetchone()[0] or 0
 
         cursor.execute('SELECT COUNT(*), SUM(valor_aplicado) FROM aplicaciones_notas')
@@ -580,11 +1271,373 @@ def estadisticas_notas():
         stats['monto_total_aplicado'] = row[1] or 0
 
         conn.close()
+        _set_cache('notas_stats', stats, 30)
         return jsonify(stats), 200
 
     except Exception as e:
         logger.error(f"Error en estadisticas_notas: {e}")
         return jsonify({"error": "Error al obtener estadísticas"}), 500
+
+
+@app.route('/api/notas/por-estado', methods=['GET'])
+@jwt_required()
+def notas_por_estado():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT estado, COUNT(*) as cantidad, SUM(valor_total) as valor_total, SUM(saldo_pendiente) as saldo_pendiente
+            FROM notas_credito
+            GROUP BY estado
+        ''')
+        resultados = []
+        for row in cursor.fetchall():
+            resultados.append({
+                'estado': row[0],
+                'cantidad': row[1] or 0,
+                'valor_total': row[2] or 0,
+                'saldo_pendiente': row[3] or 0
+            })
+
+        conn.close()
+        return jsonify(resultados), 200
+    except Exception as e:
+        logger.error(f"Error en notas_por_estado: {e}")
+        return jsonify({"error": "Error al obtener estados"}), 500
+
+
+@app.route('/api/notas/pendientes', methods=['GET'])
+@jwt_required()
+def listar_notas_pendientes():
+    try:
+        estado = request.args.get('estado')
+        prioridad = request.args.get('prioridad')
+        responsable = request.args.get('responsable')
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
+
+        query = "SELECT * FROM notas_pendientes WHERE 1=1"
+        params = []
+        if estado:
+            query += " AND estado = ?"
+            params.append(estado)
+        if prioridad:
+            query += " AND prioridad = ?"
+            params.append(prioridad)
+        if responsable:
+            query += " AND responsable = ?"
+            params.append(responsable)
+        if fecha_desde:
+            query += " AND fecha_vencimiento >= ?"
+            params.append(fecha_desde)
+        if fecha_hasta:
+            query += " AND fecha_vencimiento <= ?"
+            params.append(fecha_hasta)
+
+        query += " ORDER BY fecha_vencimiento ASC, prioridad DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        items = [dict(row) for row in cursor.fetchall()]
+
+        query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({
+            "items": items,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en listar_notas_pendientes: {e}")
+        return jsonify({"error": "Error al obtener notas pendientes"}), 500
+
+
+@app.route('/api/notas/pendientes', methods=['POST'])
+@jwt_required()
+def crear_nota_pendiente():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        numero_nota = data.get('numero_nota')
+        if not numero_nota:
+            return jsonify({"error": "numero_nota requerido"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO notas_pendientes
+            (numero_nota, prioridad, fecha_vencimiento, responsable, estado, descripcion)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            numero_nota,
+            data.get('prioridad', 'media'),
+            data.get('fecha_vencimiento'),
+            data.get('responsable'),
+            data.get('estado', 'PENDIENTE'),
+            data.get('descripcion')
+        ))
+        conn.commit()
+        conn.close()
+
+        registrar_log('notas_pendientes', 'crear', str(numero_nota), claims.get('username'), data)
+        return jsonify({"mensaje": "Nota pendiente creada"}), 201
+    except Exception as e:
+        logger.error(f"Error en crear_nota_pendiente: {e}")
+        return jsonify({"error": "Error al crear nota pendiente"}), 500
+
+
+@app.route('/api/notas/pendientes/<int:nota_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_nota_pendiente(nota_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE notas_pendientes
+            SET numero_nota = ?,
+                prioridad = ?,
+                fecha_vencimiento = ?,
+                responsable = ?,
+                estado = ?,
+                descripcion = ?,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('numero_nota'),
+            data.get('prioridad'),
+            data.get('fecha_vencimiento'),
+            data.get('responsable'),
+            data.get('estado'),
+            data.get('descripcion'),
+            nota_id
+        ))
+        conn.commit()
+        conn.close()
+        registrar_log('notas_pendientes', 'actualizar', str(nota_id), claims.get('username'), data)
+        return jsonify({"mensaje": "Nota pendiente actualizada"}), 200
+    except Exception as e:
+        logger.error(f"Error en actualizar_nota_pendiente: {e}")
+        return jsonify({"error": "Error al actualizar nota pendiente"}), 500
+
+
+@app.route('/api/notas/pendientes/<int:nota_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_nota_pendiente(nota_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM notas_pendientes WHERE id = ?', (nota_id,))
+        conn.commit()
+        conn.close()
+        registrar_log('notas_pendientes', 'eliminar', str(nota_id), claims.get('username'), {})
+        return jsonify({"mensaje": "Nota pendiente eliminada"}), 200
+    except Exception as e:
+        logger.error(f"Error en eliminar_nota_pendiente: {e}")
+        return jsonify({"error": "Error al eliminar nota pendiente"}), 500
+
+
+@app.route('/api/notas/pendientes/alertas', methods=['GET'])
+@jwt_required()
+def alertas_notas_pendientes():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM notas_pendientes
+            WHERE estado != 'COMPLETADA'
+            ORDER BY fecha_vencimiento ASC
+        ''')
+        items = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        hoy = datetime.now().date()
+        vencidas = []
+        proximas = []
+        for item in items:
+            fecha_venc = item.get('fecha_vencimiento')
+            if fecha_venc:
+                fecha_venc_dt = datetime.fromisoformat(str(fecha_venc)).date()
+                if fecha_venc_dt < hoy:
+                    vencidas.append(item)
+                elif (fecha_venc_dt - hoy).days <= 7:
+                    proximas.append(item)
+
+        return jsonify({
+            "vencidas": vencidas,
+            "proximas": proximas
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en alertas_notas_pendientes: {e}")
+        return jsonify({"error": "Error al obtener alertas"}), 500
+
+
+@app.route('/api/aplicaciones-sistema', methods=['GET'])
+@jwt_required()
+def listar_aplicaciones_sistema():
+    try:
+        estado = request.args.get('estado')
+        search = request.args.get('search')
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
+        query = "SELECT * FROM aplicaciones_sistema WHERE 1=1"
+        params = []
+        if estado:
+            query += " AND estado = ?"
+            params.append(estado)
+        if search:
+            like = f"%{search}%"
+            query += " AND (nombre LIKE ? OR version LIKE ?)"
+            params.extend([like, like])
+        query += " ORDER BY fecha_instalacion DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        items = [dict(row) for row in cursor.fetchall()]
+        query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({
+            "items": items,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en listar_aplicaciones_sistema: {e}")
+        return jsonify({"error": "Error al obtener aplicaciones"}), 500
+
+
+@app.route('/api/aplicaciones-sistema', methods=['POST'])
+@jwt_required()
+def crear_aplicacion_sistema():
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        if not data.get('nombre') or not data.get('version'):
+            return jsonify({"error": "nombre y version requeridos"}), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO aplicaciones_sistema
+            (nombre, version, fecha_instalacion, estado, uso_total)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            data.get('nombre'),
+            data.get('version'),
+            data.get('fecha_instalacion'),
+            data.get('estado', 'ACTIVA'),
+            data.get('uso_total', 0)
+        ))
+        conn.commit()
+        conn.close()
+        registrar_log('aplicaciones_sistema', 'crear', data.get('nombre'), claims.get('username'), data)
+        return jsonify({"mensaje": "Aplicación creada"}), 201
+    except Exception as e:
+        logger.error(f"Error en crear_aplicacion_sistema: {e}")
+        return jsonify({"error": "Error al crear aplicación"}), 500
+
+
+@app.route('/api/aplicaciones-sistema/<int:app_id>', methods=['PUT'])
+@jwt_required()
+def actualizar_aplicacion_sistema(app_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        data = request.get_json() or {}
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE aplicaciones_sistema
+            SET nombre = ?,
+                version = ?,
+                fecha_instalacion = ?,
+                estado = ?,
+                uso_total = ?,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('nombre'),
+            data.get('version'),
+            data.get('fecha_instalacion'),
+            data.get('estado'),
+            data.get('uso_total'),
+            app_id
+        ))
+        conn.commit()
+        conn.close()
+        registrar_log('aplicaciones_sistema', 'actualizar', str(app_id), claims.get('username'), data)
+        return jsonify({"mensaje": "Aplicación actualizada"}), 200
+    except Exception as e:
+        logger.error(f"Error en actualizar_aplicacion_sistema: {e}")
+        return jsonify({"error": "Error al actualizar aplicación"}), 500
+
+
+@app.route('/api/aplicaciones-sistema/<int:app_id>', methods=['DELETE'])
+@jwt_required()
+def eliminar_aplicacion_sistema(app_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM aplicaciones_sistema WHERE id = ?', (app_id,))
+        conn.commit()
+        conn.close()
+        registrar_log('aplicaciones_sistema', 'eliminar', str(app_id), claims.get('username'), {})
+        return jsonify({"mensaje": "Aplicación eliminada"}), 200
+    except Exception as e:
+        logger.error(f"Error en eliminar_aplicacion_sistema: {e}")
+        return jsonify({"error": "Error al eliminar aplicación"}), 500
+
+
+@app.route('/api/aplicaciones-sistema/<int:app_id>/uso', methods=['POST'])
+@jwt_required()
+def registrar_uso_aplicacion(app_id):
+    try:
+        claims, error_response, status_code = _require_write_role()
+        if error_response:
+            return error_response, status_code
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE aplicaciones_sistema
+            SET uso_total = COALESCE(uso_total, 0) + 1,
+                ultimo_uso = CURRENT_TIMESTAMP,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (app_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"mensaje": "Uso registrado"}), 200
+    except Exception as e:
+        logger.error(f"Error en registrar_uso_aplicacion: {e}")
+        return jsonify({"error": "Error al registrar uso"}), 500
 
 
 @app.route('/api/aplicaciones/<numero_nota>', methods=['GET'])
@@ -631,15 +1684,27 @@ def reporte_operativo():
             WHERE DATE(fecha_nota) = ? OR DATE(fecha_registro) = ?
             ORDER BY fecha_nota DESC
         ''', (fecha, fecha))
-        notas = [dict(row) for row in cursor.fetchall()]
+        notas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            notas.append(item)
 
         # Aplicaciones de la fecha
         cursor.execute('''
-            SELECT * FROM aplicaciones_notas
-            WHERE DATE(fecha_aplicacion) = ?
-            ORDER BY fecha_aplicacion DESC
+            SELECT a.numero_nota, a.numero_factura, a.cantidad_aplicada, a.valor_aplicado, a.fecha_aplicacion,
+                   n.nit_encrypted, n.codigo_producto
+            FROM aplicaciones_notas a
+            LEFT JOIN notas_credito n ON n.id = a.id_nota
+            WHERE DATE(a.fecha_aplicacion) = ?
+            ORDER BY a.fecha_aplicacion DESC
         ''', (fecha,))
-        aplicaciones = [dict(row) for row in cursor.fetchall()]
+        aplicaciones = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            aplicaciones.append(item)
 
         # Facturas rechazadas de la fecha
         cursor.execute('''
@@ -647,7 +1712,12 @@ def reporte_operativo():
             WHERE DATE(fecha_factura) = ?
             ORDER BY fecha_factura DESC
         ''', (fecha,))
-        rechazadas = [dict(row) for row in cursor.fetchall()]
+        rechazadas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            rechazadas.append(item)
 
         # Resumen general
         cursor.execute('''
@@ -662,6 +1732,9 @@ def reporte_operativo():
 
         cursor.execute('SELECT COUNT(*) FROM notas_credito WHERE estado = "APLICADA"')
         resumen['notas_aplicadas'] = cursor.fetchone()[0]
+
+        cursor.execute('SELECT COUNT(*) FROM notas_credito WHERE estado = "NO_APLICADA"')
+        resumen['notas_no_aplicadas'] = cursor.fetchone()[0]
 
         conn.close()
 
@@ -684,32 +1757,31 @@ def reporte_operativo():
 def dashboard():
     """Datos del dashboard principal"""
     try:
+        cached = _get_cache('dashboard')
+        if cached:
+            return jsonify(cached), 200
+
         conn = get_db_connection()
         cursor = conn.cursor()
 
         data = {}
 
-        # Facturas
         cursor.execute('SELECT COUNT(*), SUM(valor_total) FROM facturas')
         row = cursor.fetchone()
         data['facturas_validas'] = row[0] or 0
         data['valor_total_facturado'] = row[1] or 0
 
-        cursor.execute('SELECT COUNT(*) FROM facturas WHERE nota_aplicada = 1')
-        data['facturas_con_notas'] = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE registrable = 1')
+        data['facturas_registrables'] = cursor.fetchone()[0]
 
-        cursor.execute('SELECT SUM(descuento_cantidad), SUM(descuento_valor) FROM facturas')
-        row = cursor.fetchone()
-        data['total_descuento_cantidad'] = row[0] or 0
-        data['total_descuento_valor'] = row[1] or 0
+        cursor.execute('SELECT COUNT(*) FROM facturas WHERE registrable = 0')
+        data['facturas_no_registrables'] = cursor.fetchone()[0]
 
-        # Rechazadas
         cursor.execute('SELECT COUNT(*), SUM(valor_total) FROM facturas_rechazadas')
         row = cursor.fetchone()
         data['facturas_rechazadas'] = row[0] or 0
         data['valor_rechazado'] = row[1] or 0
 
-        # Notas
         cursor.execute('SELECT COUNT(*), SUM(saldo_pendiente) FROM notas_credito WHERE estado = "PENDIENTE"')
         row = cursor.fetchone()
         data['notas_pendientes'] = row[0] or 0
@@ -718,14 +1790,25 @@ def dashboard():
         cursor.execute('SELECT COUNT(*) FROM notas_credito WHERE estado = "APLICADA"')
         data['notas_aplicadas'] = cursor.fetchone()[0]
 
-        # Últimas aplicaciones
+        cursor.execute('SELECT COUNT(*) FROM notas_credito WHERE estado = "NO_APLICADA"')
+        data['notas_no_aplicadas'] = cursor.fetchone()[0]
+
         cursor.execute('''
-            SELECT numero_nota, numero_factura, numero_linea, cantidad_aplicada, valor_aplicado, fecha_aplicacion
-            FROM aplicaciones_notas ORDER BY fecha_aplicacion DESC LIMIT 10
+            SELECT a.numero_nota, a.numero_factura, a.cantidad_aplicada, a.valor_aplicado, a.fecha_aplicacion,
+                   n.nit_encrypted, n.codigo_producto
+            FROM aplicaciones_notas a
+            LEFT JOIN notas_credito n ON n.id = a.id_nota
+            ORDER BY a.fecha_aplicacion DESC LIMIT 10
         ''')
-        data['ultimas_aplicaciones'] = [dict(row) for row in cursor.fetchall()]
+        ultimas = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
+            ultimas.append(item)
+        data['ultimas_aplicaciones'] = ultimas
 
         conn.close()
+        _set_cache('dashboard', data, 30)
         return jsonify(data), 200
 
     except Exception as e:
@@ -733,9 +1816,153 @@ def dashboard():
         return jsonify({"error": "Error al obtener datos del dashboard"}), 500
 
 
+# ENDPOINTS DE LOGS
+@app.route('/api/admin/logs', methods=['GET'])
+@jwt_required()
+def listar_logs():
+    try:
+        claims = get_jwt()
+        if claims.get('rol') != 'admin':
+            return jsonify({"error": "No tiene permisos para ver logs"}), 403
+
+        entidad = request.args.get('entidad')
+        accion = request.args.get('accion')
+        usuario = request.args.get('usuario')
+        fecha_desde = request.args.get('fecha_desde')
+        fecha_hasta = request.args.get('fecha_hasta')
+        search = request.args.get('search')
+        limite = int(request.args.get('limite', 100))
+        offset = int(request.args.get('offset', 0))
+
+        query = "SELECT * FROM audit_logs WHERE 1=1"
+        params = []
+
+        if entidad:
+            query += " AND entidad = ?"
+            params.append(entidad)
+        if accion:
+            query += " AND accion = ?"
+            params.append(accion)
+        if usuario:
+            query += " AND usuario = ?"
+            params.append(usuario)
+        if fecha_desde:
+            query += " AND fecha_registro >= ?"
+            params.append(fecha_desde)
+        if fecha_hasta:
+            query += " AND fecha_registro <= ?"
+            params.append(fecha_hasta)
+        if search:
+            like = f"%{search}%"
+            query += " AND (entidad_id LIKE ? OR payload LIKE ?)"
+            params.extend([like, like])
+
+        query += " ORDER BY fecha_registro DESC LIMIT ? OFFSET ?"
+        params.extend([limite, offset])
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        items = [dict(row) for row in cursor.fetchall()]
+
+        query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
+        cursor.execute(query_count, params[:-2])
+        total = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({
+            "items": items,
+            "total": total,
+            "limite": limite,
+            "offset": offset
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en listar_logs: {e}")
+        return jsonify({"error": "Error al obtener logs"}), 500
+
+
 # =========================================================================
 # ENDPOINTS DE ADMIN - EXPORTACIÓN Y PROCESAMIENTO
 # =========================================================================
+
+@app.route('/api/admin/export-preview', methods=['POST'])
+@jwt_required()
+def exportar_preview_bd():
+    try:
+        claims = get_jwt()
+        if claims.get('rol') != 'admin':
+            return jsonify({"error": "No tiene permisos para exportar"}), 403
+
+        data = request.get_json()
+        fecha_desde = data.get('fecha_desde')
+        fecha_hasta = data.get('fecha_hasta')
+        tipo = data.get('tipo', 'facturas')
+        limite = int(data.get('limite', 50))
+
+        if not fecha_desde or not fecha_hasta:
+            return jsonify({"error": "Fechas requeridas"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if tipo == 'facturas':
+            cursor.execute('''
+                SELECT numero_linea, numero_factura, codigo_factura, nombre_producto, codigo_producto,
+                       nit_encrypted, nombre_cliente_encrypted, cantidad_original, valor_total,
+                       cantidad_restante, valor_restante, registrable, total_repeticiones,
+                       suma_total_repeticiones, fecha_factura
+                FROM facturas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_factura DESC, numero_factura
+                LIMIT ?
+            ''', (fecha_desde, fecha_hasta, limite))
+        elif tipo == 'notas':
+            cursor.execute('''
+                SELECT numero_nota, fecha_nota, nit_encrypted, nombre_cliente_encrypted,
+                       codigo_producto, nombre_producto, valor_total, cantidad, saldo_pendiente,
+                       cantidad_pendiente, estado
+                FROM notas_credito
+                WHERE fecha_nota >= ? AND fecha_nota <= ?
+                ORDER BY fecha_nota DESC, numero_nota
+                LIMIT ?
+            ''', (fecha_desde, fecha_hasta, limite))
+        elif tipo == 'rechazadas':
+            cursor.execute('''
+                SELECT numero_factura, fecha_factura, nit_encrypted, nombre_cliente_encrypted,
+                       codigo_producto, producto, tipo_inventario, valor_total, razon_rechazo
+                FROM facturas_rechazadas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_factura DESC, numero_factura
+                LIMIT ?
+            ''', (fecha_desde, fecha_hasta, limite))
+        else:
+            cursor.execute('''
+                SELECT numero_nota, numero_factura, fecha_factura, nit_hash, codigo_producto,
+                       cantidad_aplicada, valor_aplicado, fecha_aplicacion
+                FROM aplicaciones_notas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_aplicacion DESC
+                LIMIT ?
+            ''', (fecha_desde, fecha_hasta, limite))
+
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+        conn.close()
+
+        usuario = claims.get('username')
+        registrar_log('export_preview', 'consultar', f"{tipo}:{fecha_desde}:{fecha_hasta}", usuario, {
+            'tipo': tipo,
+            'limite': limite
+        })
+
+        return jsonify({
+            "columnas": columns,
+            "rows": [dict(row) for row in rows],
+            "limite": limite
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en exportar_preview_bd: {e}")
+        return jsonify({"error": "Error al generar preview"}), 500
 
 @app.route('/api/admin/exportar-excel', methods=['POST'])
 @jwt_required()
@@ -760,40 +1987,48 @@ def exportar_excel_bd():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Determinar query según tipo
+        rows_data = []
         if tipo == 'facturas':
             cursor.execute('''
-                SELECT numero_linea, numero_factura, producto, codigo_producto,
-                       nombre_cliente, nit_cliente, cantidad_original, precio_unitario,
-                       valor_total, nota_aplicada, numero_nota_aplicada,
-                       descuento_cantidad, descuento_valor, cantidad_restante,
-                       valor_restante, fecha_factura
+                SELECT numero_linea, numero_factura, codigo_factura, nombre_producto, codigo_producto,
+                       nit_encrypted, nombre_cliente_encrypted, cantidad_original, valor_total,
+                       cantidad_restante, valor_restante, registrable, total_repeticiones,
+                       suma_total_repeticiones, fecha_factura
                 FROM facturas
                 WHERE fecha_factura >= ? AND fecha_factura <= ?
                 ORDER BY fecha_factura DESC, numero_factura
             ''', (fecha_desde, fecha_hasta))
-            columns = ['Linea', 'Factura', 'Producto', 'Codigo', 'Cliente', 'NIT',
-                      'Cantidad', 'Precio Unit', 'Valor Total', 'Nota Aplicada',
-                      'Num Nota', 'Desc Cantidad', 'Desc Valor', 'Cant Rest',
-                      'Valor Rest', 'Fecha']
+            columns = ['Linea', 'Factura', 'Codigo Factura', 'Producto', 'Codigo Producto', 'Cliente', 'NIT',
+                      'Cantidad', 'Valor Total', 'Cant Rest', 'Valor Rest', 'Registrable',
+                      'Repeticiones', 'Suma Repeticiones', 'Fecha']
+            for row in cursor.fetchall():
+                item = list(row)
+                item[5] = _decrypt_value(item[5])
+                item[6] = _decrypt_value(item[6])
+                rows_data.append(item)
 
         elif tipo == 'notas':
             cursor.execute('''
-                SELECT numero_nota, fecha_nota, nombre_cliente, nit_cliente,
+                SELECT numero_nota, fecha_nota, nombre_cliente_encrypted, nit_encrypted,
                        nombre_producto, codigo_producto, cantidad, valor_total,
-                       cantidad_pendiente, saldo_pendiente, estado, causal_devolucion
+                       cantidad_pendiente, saldo_pendiente, estado, es_agente, causal_devolucion
                 FROM notas_credito
                 WHERE fecha_nota >= ? AND fecha_nota <= ?
                 ORDER BY fecha_nota DESC
             ''', (fecha_desde, fecha_hasta))
             columns = ['Nota', 'Fecha', 'Cliente', 'NIT', 'Producto', 'Codigo',
                       'Cantidad', 'Valor Total', 'Cant Pend', 'Saldo Pend',
-                      'Estado', 'Causal']
+                      'Estado', 'Es Agente', 'Causal']
+            for row in cursor.fetchall():
+                item = list(row)
+                item[2] = _decrypt_value(item[2])
+                item[3] = _decrypt_value(item[3])
+                rows_data.append(item)
 
         elif tipo == 'rechazadas':
             cursor.execute('''
                 SELECT numero_factura, numero_linea, producto, codigo_producto,
-                       nombre_cliente, nit_cliente, cantidad, valor_total,
+                       nombre_cliente_encrypted, nit_encrypted, cantidad, valor_total,
                        tipo_inventario, razon_rechazo, fecha_factura
                 FROM facturas_rechazadas
                 WHERE fecha_factura >= ? AND fecha_factura <= ?
@@ -801,24 +2036,33 @@ def exportar_excel_bd():
             ''', (fecha_desde, fecha_hasta))
             columns = ['Factura', 'Linea', 'Producto', 'Codigo', 'Cliente', 'NIT',
                       'Cantidad', 'Valor', 'Tipo Inv', 'Razon Rechazo', 'Fecha']
+            for row in cursor.fetchall():
+                item = list(row)
+                item[4] = _decrypt_value(item[4])
+                item[5] = _decrypt_value(item[5])
+                rows_data.append(item)
 
         elif tipo == 'aplicaciones':
             cursor.execute('''
-                SELECT numero_nota, numero_factura, numero_linea, nit_cliente,
-                       codigo_producto, cantidad_aplicada, valor_aplicado, fecha_aplicacion
+                SELECT a.numero_nota, a.numero_factura, a.numero_linea, n.nit_encrypted,
+                       a.codigo_producto, a.cantidad_aplicada, a.valor_aplicado, a.fecha_aplicacion
                 FROM aplicaciones_notas
-                WHERE DATE(fecha_aplicacion) >= ? AND DATE(fecha_aplicacion) <= ?
-                ORDER BY fecha_aplicacion DESC
+                LEFT JOIN notas_credito n ON n.id = a.id_nota
+                WHERE DATE(a.fecha_aplicacion) >= ? AND DATE(a.fecha_aplicacion) <= ?
+                ORDER BY a.fecha_aplicacion DESC
             ''', (fecha_desde, fecha_hasta))
             columns = ['Nota', 'Factura', 'Linea', 'NIT', 'Codigo',
                       'Cantidad Aplicada', 'Valor Aplicado', 'Fecha']
+            for row in cursor.fetchall():
+                item = list(row)
+                item[3] = _decrypt_value(item[3])
+                rows_data.append(item)
         else:
             return jsonify({"error": "Tipo inválido"}), 400
 
-        rows = cursor.fetchall()
         conn.close()
 
-        if not rows:
+        if not rows_data:
             return jsonify({"error": "No hay datos para el rango seleccionado"}), 404
 
         # Generar Excel
@@ -851,7 +2095,7 @@ def exportar_excel_bd():
             cell.border = thin_border
 
         # Datos
-        for row_idx, row in enumerate(rows, 2):
+        for row_idx, row in enumerate(rows_data, 2):
             for col_idx, value in enumerate(row, 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=value)
                 cell.border = thin_border
@@ -877,12 +2121,19 @@ def exportar_excel_bd():
         output_path = output_dir / filename
 
         wb.save(str(output_path))
+        usuario = claims.get('username')
+        registrar_log('export_excel', 'crear', filename, usuario, {
+            'tipo': tipo,
+            'fecha_desde': fecha_desde,
+            'fecha_hasta': fecha_hasta,
+            'total_registros': len(rows_data)
+        })
 
         return jsonify({
             "exito": True,
-            "mensaje": f"Excel generado con {len(rows)} registros",
+            "mensaje": f"Excel generado con {len(rows_data)} registros",
             "archivo": filename,
-            "total_registros": len(rows)
+            "total_registros": len(rows_data)
         }), 200
 
     except Exception as e:
@@ -890,6 +2141,118 @@ def exportar_excel_bd():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Error al exportar: {str(e)}"}), 500
+
+
+@app.route('/api/admin/exportar-pdf', methods=['POST'])
+@jwt_required()
+def exportar_pdf_bd():
+    try:
+        claims = get_jwt()
+        if claims.get('rol') != 'admin':
+            return jsonify({"error": "No tiene permisos para exportar"}), 403
+
+        data = request.get_json()
+        fecha_desde = data.get('fecha_desde')
+        fecha_hasta = data.get('fecha_hasta')
+        tipo = data.get('tipo', 'facturas')
+
+        if not fecha_desde or not fecha_hasta:
+            return jsonify({"error": "Fechas requeridas"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if tipo == 'facturas':
+            cursor.execute('''
+                SELECT numero_factura, codigo_factura, nombre_producto, codigo_producto,
+                       nit_encrypted, cantidad_original, valor_total, fecha_factura
+                FROM facturas
+                WHERE fecha_factura >= ? AND fecha_factura <= ?
+                ORDER BY fecha_factura DESC, numero_factura
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Factura', 'Codigo', 'Producto', 'Cod Prod', 'NIT', 'Cantidad', 'Valor', 'Fecha']
+        elif tipo == 'notas':
+            cursor.execute('''
+                SELECT numero_nota, nombre_producto, codigo_producto, nit_encrypted,
+                       cantidad, valor_total, estado, fecha_nota
+                FROM notas_credito
+                WHERE fecha_nota >= ? AND fecha_nota <= ?
+                ORDER BY fecha_nota DESC
+            ''', (fecha_desde, fecha_hasta))
+            columns = ['Nota', 'Producto', 'Codigo', 'NIT', 'Cantidad', 'Valor', 'Estado', 'Fecha']
+        else:
+            conn.close()
+            return jsonify({"error": "Tipo inválido"}), 400
+
+        rows = []
+        for row in cursor.fetchall():
+            item = list(row)
+            if tipo == 'facturas':
+                item[4] = _decrypt_value(item[4])
+            elif tipo == 'notas':
+                item[3] = _decrypt_value(item[3])
+            rows.append(item)
+        conn.close()
+
+        if not rows:
+            return jsonify({"error": "No hay datos para el rango seleccionado"}), 404
+
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+        except ImportError:
+            return jsonify({"error": "reportlab no instalado"}), 500
+
+        output_dir = PROJECT_ROOT / 'output'
+        output_dir.mkdir(exist_ok=True)
+
+        filename = f"export_{tipo}_{fecha_desde}_{fecha_hasta}.pdf"
+        output_path = output_dir / filename
+
+        c = canvas.Canvas(str(output_path), pagesize=letter)
+        width, height = letter
+        y = height - 40
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, y, f"Reporte {tipo} {fecha_desde} a {fecha_hasta}")
+        y -= 20
+
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(40, y, " | ".join(columns))
+        y -= 14
+
+        c.setFont("Helvetica", 8)
+        for row in rows:
+            line = " | ".join([str(v) for v in row])
+            if y < 40:
+                c.showPage()
+                y = height - 40
+                c.setFont("Helvetica-Bold", 9)
+                c.drawString(40, y, " | ".join(columns))
+                y -= 14
+                c.setFont("Helvetica", 8)
+            c.drawString(40, y, line[:200])
+            y -= 12
+
+        c.save()
+        usuario = claims.get('username')
+        registrar_log('export_pdf', 'crear', filename, usuario, {
+            'tipo': tipo,
+            'fecha_desde': fecha_desde,
+            'fecha_hasta': fecha_hasta,
+            'total_registros': len(rows)
+        })
+
+        return jsonify({
+            "exito": True,
+            "mensaje": f"PDF generado con {len(rows)} registros",
+            "archivo": filename,
+            "total_registros": len(rows)
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en exportar_pdf_bd: {e}")
+        return jsonify({"error": "Error al exportar PDF"}), 500
 
 
 @app.route('/api/admin/descargar/<filename>', methods=['GET'])
@@ -929,7 +2292,7 @@ def procesar_rango():
     """
     try:
         claims = get_jwt()
-        if claims.get('rol') != 'admin':
+        if claims.get('rol') not in ('admin', 'editor'):
             return jsonify({"error": "No tiene permisos"}), 403
 
         data = request.get_json()
@@ -958,7 +2321,6 @@ def procesar_rango():
         config = {
             'CONNI_KEY': os.getenv('CONNI_KEY'),
             'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
-            'DB_PATH': str(DB_PATH),
             'TEMPLATE_PATH': os.getenv('TEMPLATE_PATH', './templates/plantilla.xlsx')
         }
 
@@ -989,7 +2351,7 @@ def listar_archivos():
 
         archivos = []
         for f in output_dir.iterdir():
-            if f.is_file() and f.suffix in ['.xlsx', '.txt']:
+            if f.is_file() and f.suffix in ['.xlsx', '.txt', '.pdf']:
                 archivos.append({
                     'nombre': f.name,
                     'tamaño': f.stat().st_size,
@@ -1003,6 +2365,66 @@ def listar_archivos():
     except Exception as e:
         logger.error(f"Error al listar archivos: {e}")
         return jsonify({"error": "Error al listar archivos"}), 500
+
+
+@app.route('/api/openapi.json', methods=['GET'])
+def openapi_spec():
+    spec = {
+        "openapi": "3.0.0",
+        "info": {
+            "title": "CIPA Notas Crédito y Facturas API",
+            "version": "2.0.0"
+        },
+        "paths": {
+            "/api/facturas": {
+                "get": {"summary": "Listar facturas"},
+                "post": {"summary": "Crear factura"}
+            },
+            "/api/facturas/{factura_id}": {
+                "get": {"summary": "Obtener factura"},
+                "put": {"summary": "Actualizar factura"},
+                "delete": {"summary": "Eliminar factura"}
+            },
+            "/api/notas": {
+                "get": {"summary": "Listar notas"},
+                "post": {"summary": "Crear nota"}
+            },
+            "/api/notas/{nota_id}": {
+                "get": {"summary": "Obtener nota"},
+                "put": {"summary": "Actualizar nota"},
+                "delete": {"summary": "Eliminar nota"}
+            },
+            "/api/notas/aplicar": {
+                "post": {"summary": "Aplicar nota a factura"}
+            },
+            "/api/notas/no-aplicadas": {
+                "get": {"summary": "Listar motivos de no aplicación"},
+                "post": {"summary": "Registrar motivo de no aplicación"}
+            },
+            "/api/notas/estadisticas": {
+                "get": {"summary": "Estadísticas de notas"}
+            },
+            "/api/notas/por-estado": {
+                "get": {"summary": "Notas por estado"}
+            },
+            "/api/facturas/estadisticas": {
+                "get": {"summary": "Estadísticas de facturas"}
+            },
+            "/api/facturas/transacciones": {
+                "get": {"summary": "Transacciones recientes"}
+            },
+            "/api/dashboard": {
+                "get": {"summary": "Dashboard"}
+            },
+            "/api/admin/exportar-excel": {
+                "post": {"summary": "Exportar Excel"}
+            },
+            "/api/admin/exportar-pdf": {
+                "post": {"summary": "Exportar PDF"}
+            }
+        }
+    }
+    return jsonify(spec), 200
 
 
 # HEALTH CHECK
@@ -1030,5 +2452,9 @@ def internal_error(error):
 if __name__ == '__main__':
     port = int(os.getenv('API_PORT', 2500))
     logger.info(f"Iniciando API en puerto {port}")
-    logger.info(f"Base de datos: {DB_PATH}")
+    engine = get_engine()
+    if engine == 'mysql':
+        logger.info("Base de datos: MySQL")
+    else:
+        logger.info(f"Base de datos: {DB_PATH}")
     app.run(host='0.0.0.0', port=port, debug=True)

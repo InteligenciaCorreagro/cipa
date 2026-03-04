@@ -21,6 +21,12 @@ import os
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Tuple
+from cryptography.fernet import Fernet
+
+if not os.getenv('DATA_ENCRYPTION_KEY'):
+    os.environ['DATA_ENCRYPTION_KEY'] = Fernet.generate_key().decode('utf-8')
+if not os.getenv('DATA_HASH_SALT'):
+    os.environ['DATA_HASH_SALT'] = 'test-salt'
 
 # Agregar el directorio core al path para imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'core'))

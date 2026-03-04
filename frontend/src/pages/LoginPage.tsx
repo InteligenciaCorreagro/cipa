@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
@@ -11,11 +11,18 @@ import { Leaf, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({})
   
-  const { login, isLoading, error } = useAuthStore()
+  const { login, isLoading, error, requires2fa } = useAuthStore()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (localStorage.getItem('logout_success')) {
+      localStorage.removeItem('logout_success')
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,7 +50,7 @@ export default function LoginPage() {
 
     // Login real usando zustand store
     try {
-      await login({ username, password })
+      await login({ username, password, otp: otp || undefined })
       navigate('/')
     } catch (err) {
       console.error('Error al iniciar sesión:', err)
@@ -59,15 +66,21 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg shadow-emerald-600/30 mb-6">
             <Leaf className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900">CIPA</h1>
-          <p className="text-gray-500 mt-2 text-sm">Sistema de Gestión de Notas de Crédito</p>
+          <h1 className="text-4xl font-bold tracking-tight text-emerald-900">CIPA</h1>
+          <p className="text-emerald-700 mt-2 text-sm">Sistema de Gestión de Notas de Crédito</p>
         </div>
 
         {/* Formulario */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
+        <div className="bg-white rounded-2xl shadow-xl border border-emerald-100 p-8">
+          {localStorage.getItem('logout_success') && (
+            <div className="mb-4 text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-200 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              Sesión cerrada correctamente
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-gray-700 text-sm font-medium">
+              <Label htmlFor="username" className="text-emerald-800 text-sm font-medium">
                 Usuario
               </Label>
               <Input
@@ -80,20 +93,20 @@ export default function LoginPage() {
                   if (fieldErrors.username) setFieldErrors((prev) => ({ ...prev, username: undefined }))
                 }}
                 autoComplete="username"
-                className={`h-12 border-gray-200 bg-gray-50/50 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 transition-all placeholder:text-gray-400 ${
-                  fieldErrors.username ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : ""
+                className={`h-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300 ${
+                  fieldErrors.username ? "border-emerald-600 focus:border-emerald-700 focus:ring-emerald-600/20" : ""
                 }`}
               />
               {fieldErrors.username && (
-                <div className="flex items-center gap-1 text-sm text-red-600 mt-1">
-                  <AlertCircle className="w-4 h-4" />
+                <div className="flex items-center gap-1 text-sm text-emerald-700 mt-1">
+                  <AlertCircle className="w-4 h-4 text-emerald-600" />
                   {fieldErrors.username}
                 </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-700 text-sm font-medium">
+              <Label htmlFor="password" className="text-emerald-800 text-sm font-medium">
                 Contraseña
               </Label>
               <div className="relative">
@@ -107,30 +120,47 @@ export default function LoginPage() {
                     if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }))
                   }}
                   autoComplete="current-password"
-                  className={`h-12 pr-12 border-gray-200 bg-gray-50/50 focus:bg-white focus:border-emerald-500 focus:ring-emerald-500/20 transition-all placeholder:text-gray-400 ${
-                    fieldErrors.password ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : ""
+                  className={`h-12 pr-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300 ${
+                    fieldErrors.password ? "border-emerald-600 focus:border-emerald-700 focus:ring-emerald-600/20" : ""
                   }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 hover:text-emerald-600 transition-colors"
                   aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
               {fieldErrors.password && (
-                <div className="flex items-center gap-1 text-sm text-red-600 mt-1">
-                  <AlertCircle className="w-4 h-4" />
+                <div className="flex items-center gap-1 text-sm text-emerald-700 mt-1">
+                  <AlertCircle className="w-4 h-4 text-emerald-600" />
                   {fieldErrors.password}
                 </div>
               )}
             </div>
 
+            {requires2fa && (
+              <div className="space-y-2">
+                <Label htmlFor="otp" className="text-emerald-800 text-sm font-medium">
+                  Código OTP
+                </Label>
+                <Input
+                  id="otp"
+                  type="text"
+                  placeholder="Ingrese el código de 6 dígitos"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  autoComplete="one-time-code"
+                  className="h-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300"
+                />
+              </div>
+            )}
+
             {error && (
-              <div className="text-sm text-red-600 bg-red-50 px-4 py-3 rounded-lg border border-red-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <div className="text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-200 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-emerald-600" />
                 {error}
               </div>
             )}
@@ -152,7 +182,7 @@ export default function LoginPage() {
           </form>
 
           {/* Footer */}
-          <p className="text-center text-xs text-gray-400 mt-6">
+          <p className="text-center text-xs text-emerald-400 mt-6">
             © 2025 CIPA. Todos los derechos reservados.
           </p>
         </div>

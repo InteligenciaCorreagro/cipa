@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, Badge } from '@/components/ui/Table'
+import { Table, Badge } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuthStore } from '@/store/authStore'
-import { api } from '@/services/api'
+import { api, authApi } from '@/services/api'
 import { useNavigate } from 'react-router-dom'
 import { 
   Users, 
@@ -42,6 +42,13 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [twoFaStatus, setTwoFaStatus] = useState<{ configurado: boolean; habilitado: boolean }>({
+    configurado: false,
+    habilitado: false
+  })
+  const [twoFaSecret, setTwoFaSecret] = useState('')
+  const [twoFaUri, setTwoFaUri] = useState('')
+  const [twoFaOtp, setTwoFaOtp] = useState('')
 
   // Formulario de nuevo usuario
   const [newUser, setNewUser] = useState({
@@ -59,20 +66,77 @@ export default function UserManagementPage() {
   }, [user, navigate])
 
   // Cargar usuarios al montar el componente
-  useEffect(() => {
-    loadUsers()
-  }, [])
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const response = await api.get('/api/auth/users')
       setUsers(response.data.usuarios || response.data)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al cargar usuarios')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al cargar usuarios'
+      setError(message)
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadUsers()
+  }, [loadUsers])
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const status = await authApi.status2fa()
+        setTwoFaStatus(status)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Error al cargar 2FA'
+        setError(message)
+      }
+    }
+    loadStatus()
+  }, [])
+
+  const handleSetup2fa = async () => {
+    setError(null)
+    try {
+      const res = await authApi.setup2fa()
+      setTwoFaSecret(res.secret)
+      setTwoFaUri(res.otpauth_uri)
+      const status = await authApi.status2fa()
+      setTwoFaStatus(status)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al configurar 2FA'
+      setError(message)
+    }
+  }
+
+  const handleEnable2fa = async () => {
+    setError(null)
+    try {
+      await authApi.enable2fa(twoFaOtp)
+      setTwoFaOtp('')
+      const status = await authApi.status2fa()
+      setTwoFaStatus(status)
+      setSuccess('2FA habilitado correctamente')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al habilitar 2FA'
+      setError(message)
+    }
+  }
+
+  const handleDisable2fa = async () => {
+    setError(null)
+    try {
+      await authApi.disable2fa()
+      setTwoFaSecret('')
+      setTwoFaUri('')
+      const status = await authApi.status2fa()
+      setTwoFaStatus(status)
+      setSuccess('2FA deshabilitado correctamente')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al deshabilitar 2FA'
+      setError(message)
     }
   }
 
@@ -106,8 +170,9 @@ export default function UserManagementPage() {
 
       // Recargar lista de usuarios
       await loadUsers()
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al crear usuario')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al crear usuario'
+      setError(message)
     }
   }
 
@@ -135,7 +200,7 @@ export default function UserManagementPage() {
     }
   }
 
-  const getRolVariant = (rol: string): any => {
+  const getRolVariant = (rol: string): 'danger' | 'info' | 'success' | 'default' => {
     switch (rol) {
       case 'admin':
         return 'danger'
@@ -304,6 +369,61 @@ export default function UserManagementPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-br from-emerald-50 to-white">
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5 text-emerald-600" />
+            <div>
+              <CardTitle className="text-lg">Autenticación de dos factores</CardTitle>
+              <CardDescription className="mt-1">Protege el acceso con OTP</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <Badge variant={twoFaStatus.habilitado ? 'success' : 'warning'}>
+              {twoFaStatus.habilitado ? '2FA activo' : '2FA inactivo'}
+            </Badge>
+            {twoFaStatus.configurado && !twoFaStatus.habilitado && (
+              <Badge variant="info">Configurado</Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={handleSetup2fa} variant="outline">
+              Generar secreto
+            </Button>
+            <Button onClick={handleDisable2fa} variant="outline" className="text-red-600">
+              Deshabilitar 2FA
+            </Button>
+          </div>
+          {(twoFaSecret || twoFaUri) && (
+            <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/50 p-4">
+              <div className="text-sm text-gray-700">Secreto: <span className="font-mono">{twoFaSecret}</span></div>
+              <div className="text-sm text-gray-700 break-all">URI: {twoFaUri}</div>
+            </div>
+          )}
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="md:col-span-2 space-y-2">
+              <Label htmlFor="otp" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                OTP
+              </Label>
+              <Input
+                id="otp"
+                value={twoFaOtp}
+                onChange={(e) => setTwoFaOtp(e.target.value)}
+                className="h-11 border-2 focus:border-emerald-500"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={handleEnable2fa} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700">
+                Habilitar 2FA
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Formulario de Creación de Usuario */}
       <Card className="border-0 shadow-lg">

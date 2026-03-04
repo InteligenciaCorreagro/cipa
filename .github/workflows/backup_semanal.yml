@@ -1,9 +1,8 @@
-name: Backup Semanal de Base de Datos
+name: Backup Diario de Base de Datos
 
 on:
   schedule:
-    # Ejecutar todos los domingos a las 2:00 AM UTC (9:00 PM sábado Bogotá)
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * *'
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
@@ -59,7 +58,7 @@ jobs:
       - name: Cargar backups como artefacto
         uses: actions/upload-artifact@v4
         with:
-          name: backups-semanales
+          name: backups-diarios
           path: backups/
           retention-days: 90
       
@@ -72,7 +71,7 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           DESTINATARIOS: ${{ secrets.DESTINATARIOS }}
         run: |
-          echo "Backup semanal completado" > backup_log.txt
+          echo "Backup diario completado" > backup_log.txt
           date >> backup_log.txt
           ls -lh backups/ >> backup_log.txt
           echo "Para descargar el backup, ir a Actions → Artifacts"

@@ -184,9 +184,17 @@ class ExcelProcessor:
             'moneda': '1',
             'um_base': um_base,
             'valor_total': valor_total,
-            'codigo_producto_api': str(factura.get('f_cod_item', '')).strip(),
+            'codigo_producto_api': str(
+                factura.get('f_cod_item')
+                or factura.get('f_rowid_movto')
+                or factura.get('f_rowid')
+                or factura.get('f_desc_item', '')
+            ).strip(),
             'condicion_pago': condicion_pago,  # Para debug/auditoría
-            'indice_linea': factura.get('_indice_linea', 0)  # Índice único de línea
+            'indice_linea': factura.get('_indice_linea', 0),
+            'descuento_valor': float(factura.get('descuento_valor', 0.0) or 0.0),
+            'descuento_cantidad': float(factura.get('descuento_cantidad', 0.0) or 0.0),
+            'nota_aplicada': str(factura.get('nota_aplicada', '') or '')
         }
     
     def _extraer_iva(self, grupo_impositivo: str) -> str:
@@ -301,7 +309,10 @@ class ExcelProcessor:
             'Cantidad Original (5 decimales - separdor coma)',
             'Moneda (1,2,3)',
             'UM Base',
-            'Valor Total'
+            'Valor Total',
+            'Valor Descuento',
+            'Cantidad Descuento',
+            'Nota Aplicada'
         ]
 
         # Estilo de encabezado
@@ -317,7 +328,7 @@ class ExcelProcessor:
             cell.alignment = header_alignment
 
         # Ajustar ancho de columnas
-        column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15, 20]
+        column_widths = [15, 40, 18, 25, 25, 25, 22, 22, 22, 40, 22, 50, 15, 35, 12, 35, 15, 15, 15, 30, 15, 15, 20, 18, 18, 22]
         for col_num, width in enumerate(column_widths, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_num).column_letter].width = width
     
@@ -392,6 +403,12 @@ class ExcelProcessor:
                 # Valor Total con 5 decimales
                 ws[f'W{idx}'] = factura['valor_total']
                 ws[f'W{idx}'].number_format = '#,##0.00000'
+
+                ws[f'X{idx}'] = factura.get('descuento_valor', 0)
+                ws[f'X{idx}'].number_format = '#,##0.00000'
+                ws[f'Y{idx}'] = factura.get('descuento_cantidad', 0)
+                ws[f'Y{idx}'].number_format = '#,##0.00000'
+                ws[f'Z{idx}'] = factura.get('nota_aplicada', '')
             
             # Guardar archivo
             wb.save(output_path)

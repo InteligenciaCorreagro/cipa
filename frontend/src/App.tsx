@@ -9,9 +9,14 @@ import LoginPage from '@/pages/LoginPage'
 import DashboardPage from '@/pages/DashboardPage'
 import NotasPage from '@/pages/NotasPage'
 import NotaDetailPage from '@/pages/NotaDetailPage'
+import FacturasPage from '@/pages/FacturasPage'
 import UserManagementPage from '@/pages/UserManagementPage'
 import OperativeReportPage from '@/pages/OperativeReportPage'
 import AdminProcesarRangoPage from '@/pages/AdminProcesarRangoPage'
+import NotasPendientesPage from '@/pages/NotasPendientesPage'
+import AplicacionesSistemaPage from '@/pages/AplicacionesSistemaPage'
+import LogsPage from '@/pages/LogsPage'
+import SessionLoadingOverlay from '@/components/SessionLoadingOverlay'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,11 +28,18 @@ const queryClient = new QueryClient({
   },
 })
 
-// Obtener el base path desde el import.meta.env o usar '/' por defecto
-const BASE_PATH = import.meta.env.VITE_USE_SUBPATH === 'true' ? '/intranet/cipa' : '/'
+const BASE_SUBPATH = '/intranet/cipa'
+const BASE_PATH = (() => {
+  if (import.meta.env.VITE_USE_SUBPATH === 'true') {
+    return window.location.pathname.startsWith(BASE_SUBPATH) ? BASE_SUBPATH : '/'
+  }
+  return '/'
+})()
 
 function App() {
   const initialize = useAuthStore((state) => state.initialize)
+  const sessionTransitioning = useAuthStore((state) => state.sessionTransitioning)
+  const sessionMessage = useAuthStore((state) => state.sessionMessage)
 
   useEffect(() => {
     initialize()
@@ -35,6 +47,7 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <SessionLoadingOverlay visible={sessionTransitioning} message={sessionMessage} />
       <BrowserRouter basename={BASE_PATH}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -47,11 +60,16 @@ function App() {
             }
           >
             <Route index element={<DashboardPage />} />
+            <Route path="facturas" element={<FacturasPage />} />
             <Route path="notas" element={<NotasPage />} />
             <Route path="notas/:id" element={<NotaDetailPage />} />
+            <Route path="notas-pendientes" element={<NotasPendientesPage />} />
+            <Route path="aplicaciones" element={<AplicacionesSistemaPage />} />
             <Route path="usuarios" element={<UserManagementPage />} />
             <Route path="reporte-operativo" element={<OperativeReportPage />} />
+            <Route path="procesamiento-facturas" element={<AdminProcesarRangoPage />} />
             <Route path="admin/procesar-rango" element={<AdminProcesarRangoPage />} />
+            <Route path="admin/logs" element={<LogsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

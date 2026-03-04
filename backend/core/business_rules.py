@@ -45,6 +45,9 @@ class BusinessRulesValidator:
     
     # Monto mínimo para procesar una factura COMPLETA (en pesos colombianos)
     MONTO_MINIMO = 524000.0
+
+    # NIT vendedor institucional
+    NIT_VENDEDOR = '890907163'
     
     # Valores de f_02_014 que NO deben registrarse (retención)
     AGENTES_RETENCION_EXCLUIDOS = {
@@ -105,6 +108,15 @@ class BusinessRulesValidator:
         prefijo = str(factura.get('f_prefijo', '')).strip()
         numero = str(factura.get('f_nrodocto', '')).strip()
         return f"{prefijo}{numero}"
+
+    def es_punta_igual(self, factura: Dict) -> bool:
+        comprador = str(
+            factura.get('f_cliente_desp')
+            or factura.get('nit_comprador')
+            or factura.get('nit_cliente')
+            or ''
+        ).strip()
+        return comprador == self.NIT_VENDEDOR
     
     def es_nota_credito(self, factura: Dict) -> bool:
         """
@@ -265,23 +277,35 @@ class BusinessRulesValidator:
         facturas_rechazadas = []
 
         # Separar notas crédito y validar tipo de inventario
-        # IMPORTANTE: Las notas de crédito con prefijo 'N' se aceptan
-        # SOLO si su tipo de inventario NO está en TIPOS_INVENTARIO_EXCLUIDOS
         facturas_regulares = []
         for factura in facturas:
-            if self.es_nota_credito(factura):
-                tipo_inv = self._obtener_tipo_inventario_normalizado(factura)
-                # Validar tipo de inventario en notas de crédito
-                if not self.tipo_inventario_permitido(factura):
-                    razon = f"Nota crédito con tipo de inventario excluido: {tipo_inv}"
+            if self.es_punta_igual(factura):
+                razon = f"Comprador y vendedor iguales ({self.NIT_VENDEDOR})"
+                facturas_rechazadas.append({
+                    'factura': factura,
+                    'razon_rechazo': razon
+                })
+                logger.warning(f"❌ Rechazada por puntas iguales: {self.obtener_numero_factura_completo(factura)}")
+            elif self.es_nota_credito(factura):
+                if self.es_agente_retencion_no_permitido(factura):
+                    razon = f"NO AGENTE DE RETENCION (f_02_014='{factura.get('f_02_014', '')}') - No debe registrarse"
                     facturas_rechazadas.append({
                         'factura': factura,
                         'razon_rechazo': razon
                     })
-                    logger.warning(f"❌ Nota crédito rechazada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo inventario excluido: '{tipo_inv}'")
+                    logger.warning(f"❌ Nota crédito rechazada por agente: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
                 else:
-                    notas_credito.append(factura)
-                    logger.debug(f"✅ Nota crédito aceptada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')} - Tipo inventario: '{tipo_inv}'")
+                    if not self.tipo_inventario_permitido(factura):
+                        tipo_inv = self._obtener_tipo_inventario_normalizado(factura)
+                        razon = f"Tipo de inventario excluido: {tipo_inv}"
+                        facturas_rechazadas.append({
+                            'factura': factura,
+                            'razon_rechazo': razon
+                        })
+                        logger.warning(f"❌ Nota crédito rechazada por tipo inventario: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
+                    else:
+                        notas_credito.append(factura)
+                        logger.debug(f"✅ Nota crédito aceptada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
             else:
                 # VALIDACIÓN CRÍTICA: Verificar f_02_014 (agente de retención)
                 if self.es_agente_retencion_no_permitido(factura):

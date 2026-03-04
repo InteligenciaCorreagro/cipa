@@ -1,8 +1,8 @@
-import { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 interface Column<T> {
-  key: string
+  key: keyof T | string
   label: string
   render?: (row: T) => ReactNode
   align?: 'left' | 'center' | 'right'
@@ -21,6 +21,8 @@ interface TableProps<T> {
   striped?: boolean
   compact?: boolean
   bordered?: boolean
+  enablePagination?: boolean
+  pageSize?: number
 }
 
 export function Table<T>({
@@ -33,8 +35,40 @@ export function Table<T>({
   hoverable = true,
   striped = false,
   compact = false,
-  bordered = true
+  bordered = true,
+  enablePagination = true,
+  pageSize = 25
 }: TableProps<T>) {
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const totalPages = useMemo(() => {
+    if (!enablePagination) return 1
+    return Math.max(1, Math.ceil(data.length / pageSize))
+  }, [data.length, enablePagination, pageSize])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const paginatedData = useMemo(() => {
+    if (!enablePagination || data.length <= pageSize) return data
+    const start = (currentPage - 1) * pageSize
+    return data.slice(start, start + pageSize)
+  }, [data, enablePagination, pageSize, currentPage])
+
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 1) return []
+    const pages: number[] = []
+    const start = Math.max(1, currentPage - 2)
+    const end = Math.min(totalPages, currentPage + 2)
+    for (let i = start; i <= end; i += 1) {
+      pages.push(i)
+    }
+    return pages
+  }, [currentPage, totalPages])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -77,7 +111,7 @@ export function Table<T>({
           )}>
             {columns.map((column) => (
               <th
-                key={column.key}
+                key={String(column.key)}
                 className={cn(
                   'font-semibold text-sm text-gray-700',
                   compact ? 'py-3 px-4' : 'py-4 px-6',
@@ -111,7 +145,7 @@ export function Table<T>({
         <tbody className={cn(
           bordered && 'divide-y divide-gray-100'
         )}>
-          {data.map((row, index) => (
+          {paginatedData.map((row, index) => (
             <tr
               key={keyExtractor(row)}
               className={cn(
@@ -125,7 +159,7 @@ export function Table<T>({
             >
               {columns.map((column) => (
                 <td
-                  key={column.key}
+                  key={String(column.key)}
                   className={cn(
                     'text-gray-900',
                     compact ? 'py-3 px-4' : 'py-4 px-6',
@@ -135,7 +169,16 @@ export function Table<T>({
                 >
                   {column.render 
                     ? column.render(row)
-                    : (row as any)[column.key]
+                    : (() => {
+                        const value = (row as Record<string, unknown>)[column.key as string]
+                        if (typeof value === 'string' || typeof value === 'number') {
+                          return value
+                        }
+                        if (value === null || value === undefined) {
+                          return ''
+                        }
+                        return String(value)
+                      })()
                   }
                 </td>
               ))}
@@ -143,6 +186,46 @@ export function Table<T>({
           ))}
         </tbody>
       </table>
+      {enablePagination && totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+          <p className="text-sm text-emerald-700">
+            Página {currentPage} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            {pageNumbers.map((page) => (
+              <button
+                key={page}
+                type="button"
+                onClick={() => setCurrentPage(page)}
+                className={cn(
+                  'rounded-md border px-3 py-1.5 text-sm',
+                  currentPage === page
+                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                    : 'border-emerald-200 text-emerald-700'
+                )}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

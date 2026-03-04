@@ -14,7 +14,9 @@ export function useFacturas(params?: {
   nit_cliente?: string
   fecha_desde?: string
   fecha_hasta?: string
-  es_valida?: boolean
+  codigo_factura?: string
+  registrable?: boolean
+  con_nota?: boolean
   limite?: number
   offset?: number
 }) {

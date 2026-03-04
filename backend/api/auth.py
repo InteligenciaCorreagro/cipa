@@ -10,12 +10,15 @@ Características:
 """
 
 import os
-import sqlite3
 import bcrypt
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Tuple
+try:
+    from db import get_connection, get_engine, get_sqlite_path
+except ImportError:
+    from backend.db import get_connection, get_engine, get_sqlite_path
 
 logger = logging.getLogger(__name__)
 
@@ -23,76 +26,143 @@ logger = logging.getLogger(__name__)
 class AuthManager:
     """Gestiona autenticación y autorización"""
 
-    def __init__(self, db_path: str = None):
-        # Si no se proporciona db_path, usar variable de entorno o calcular ruta al proyecto raíz
-        if db_path is None:
-            # Intentar obtener desde variable de entorno
-            db_path = os.getenv('DB_PATH')
+    def __init__(self, db_path: Optional[str] = None):
+        if get_engine() == 'mysql':
+            self.db_path = None
+            logger.info("AuthManager usando base de datos: MySQL")
+        else:
             if db_path is None:
-                # Calcular ruta al directorio raíz del proyecto
-                # auth.py está en backend/api/, necesitamos subir 2 niveles
                 project_root = Path(__file__).parent.parent.parent
-                db_path = str(project_root / 'data' / 'notas_credito.db')
-
-        self.db_path = db_path
-        logger.info(f"AuthManager usando base de datos: {db_path}")
+                db_path = get_sqlite_path(str(project_root / 'data' / 'notas_credito.db'))
+            self.db_path = db_path
+            logger.info(f"AuthManager usando base de datos: {db_path}")
         self._inicializar_tablas()
 
     def _inicializar_tablas(self):
         """Inicializa tablas de autenticación"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
-        # Tabla de usuarios
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                email TEXT,
-                rol TEXT DEFAULT 'viewer',
-                activo INTEGER DEFAULT 1,
-                intentos_fallidos INTEGER DEFAULT 0,
-                bloqueado_hasta TIMESTAMP NULL,
-                ultimo_acceso TIMESTAMP NULL,
-                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        if get_engine(self.db_path) == 'mysql':
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(100) NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    email VARCHAR(255),
+                    rol VARCHAR(20) DEFAULT 'viewer',
+                    activo INT DEFAULT 1,
+                    intentos_fallidos INT DEFAULT 0,
+                    bloqueado_hasta TIMESTAMP NULL,
+                    ultimo_acceso TIMESTAMP NULL,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ''')
 
-        # Tabla de sesiones/tokens
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sesiones (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                token_jti TEXT NOT NULL UNIQUE,
-                refresh_jti TEXT UNIQUE,
-                ip_address TEXT,
-                user_agent TEXT,
-                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                fecha_expiracion TIMESTAMP NOT NULL,
-                activa INTEGER DEFAULT 1,
-                FOREIGN KEY (user_id) REFERENCES usuarios(id)
-            )
-        ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sesiones (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    token_jti VARCHAR(255) NOT NULL UNIQUE,
+                    refresh_jti VARCHAR(255) UNIQUE,
+                    ip_address VARCHAR(100),
+                    user_agent TEXT,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_expiracion TIMESTAMP NULL,
+                    activa INT DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ''')
 
-        # Tabla de intentos de login
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS intentos_login (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
-                ip_address TEXT,
-                exitoso INTEGER NOT NULL,
-                razon_fallo TEXT,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS intentos_login (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(100) NOT NULL,
+                    ip_address VARCHAR(100),
+                    exitoso INT NOT NULL,
+                    razon_fallo TEXT,
+                    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ''')
 
-        # Índices
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_user ON sesiones(user_id)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_jti ON sesiones(token_jti)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_ip ON intentos_login(ip_address, fecha)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_user ON intentos_login(username, fecha)')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios_2fa (
+                    user_id INT PRIMARY KEY,
+                    secreto VARCHAR(255) NOT NULL,
+                    habilitado INT DEFAULT 0,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ''')
+        else:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    email TEXT,
+                    rol TEXT DEFAULT 'viewer',
+                    activo INTEGER DEFAULT 1,
+                    intentos_fallidos INTEGER DEFAULT 0,
+                    bloqueado_hasta TIMESTAMP NULL,
+                    ultimo_acceso TIMESTAMP NULL,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sesiones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_jti TEXT NOT NULL UNIQUE,
+                    refresh_jti TEXT UNIQUE,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    fecha_expiracion TIMESTAMP NOT NULL,
+                    activa INTEGER DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS intentos_login (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    ip_address TEXT,
+                    exitoso INTEGER NOT NULL,
+                    razon_fallo TEXT,
+                    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios_2fa (
+                    user_id INTEGER PRIMARY KEY,
+                    secreto TEXT NOT NULL,
+                    habilitado INTEGER DEFAULT 0,
+                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
+                )
+            ''')
+
+        if get_engine(self.db_path) == 'mysql':
+            def _create_index(name: str, table: str, columns: str):
+                try:
+                    cursor.execute(f"CREATE INDEX {name} ON {table}({columns})")
+                except Exception:
+                    pass
+            _create_index('idx_sesiones_user', 'sesiones', 'user_id')
+            _create_index('idx_sesiones_jti', 'sesiones', 'token_jti')
+            _create_index('idx_intentos_ip', 'intentos_login', 'ip_address, fecha')
+            _create_index('idx_intentos_user', 'intentos_login', 'username, fecha')
+        else:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_user ON sesiones(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_jti ON sesiones(token_jti)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_ip ON intentos_login(ip_address, fecha)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_user ON intentos_login(username, fecha)')
 
         # Crear usuario admin por defecto si no existe
         cursor.execute('SELECT COUNT(*) FROM usuarios WHERE username = ?', ('admin',))
@@ -121,7 +191,7 @@ class AuthManager:
         Returns:
             True si se creó exitosamente
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         try:
@@ -156,7 +226,7 @@ class AuthManager:
         Returns:
             (bloqueado: bool, bloqueado_hasta: datetime)
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -171,10 +241,17 @@ class AuthManager:
         if not row:
             return False, None
 
-        bloqueado_hasta_str, intentos = row
+        if isinstance(row, dict):
+            bloqueado_hasta_value = row.get('bloqueado_hasta')
+            intentos = row.get('intentos_fallidos')
+        else:
+            bloqueado_hasta_value, intentos = row
 
-        if bloqueado_hasta_str:
-            bloqueado_hasta = datetime.fromisoformat(bloqueado_hasta_str)
+        if bloqueado_hasta_value:
+            if isinstance(bloqueado_hasta_value, datetime):
+                bloqueado_hasta = bloqueado_hasta_value
+            else:
+                bloqueado_hasta = datetime.fromisoformat(str(bloqueado_hasta_value))
             if datetime.now() < bloqueado_hasta:
                 return True, bloqueado_hasta
             else:
@@ -185,7 +262,7 @@ class AuthManager:
 
     def _desbloquear_usuario(self, username: str):
         """Desbloquea un usuario y resetea intentos fallidos"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -210,7 +287,7 @@ class AuthManager:
         Returns:
             (autenticado: bool, datos_usuario: dict, mensaje: str)
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         # Verificar bloqueo
@@ -233,14 +310,27 @@ class AuthManager:
             self._registrar_intento(username, ip_address, False, "Usuario no existe")
             return False, None, "Credenciales inválidas"
 
-        user_id, username_db, password_hash, email, rol, activo = row
+        if isinstance(row, dict):
+            user_id = row.get('id')
+            username_db = row.get('username')
+            password_hash = row.get('password_hash')
+            email = row.get('email')
+            rol = row.get('rol')
+            activo = row.get('activo')
+        else:
+            user_id, username_db, password_hash, email, rol, activo = row
 
         if not activo:
             self._registrar_intento(username, ip_address, False, "Usuario inactivo")
             return False, None, "Usuario inactivo"
 
         # Verificar contraseña
-        if not bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8')):
+        if isinstance(password_hash, bytes):
+            hash_bytes = password_hash
+        else:
+            hash_bytes = str(password_hash or '').encode('utf-8')
+
+        if not bcrypt.checkpw(password.encode('utf-8'), hash_bytes):
             # Incrementar intentos fallidos
             self._incrementar_intentos_fallidos(username)
             self._registrar_intento(username, ip_address, False, "Contraseña incorrecta")
@@ -263,7 +353,7 @@ class AuthManager:
 
     def _registrar_intento(self, username: str, ip_address: str, exitoso: bool, razon_fallo: str = None):
         """Registra un intento de login"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -276,7 +366,7 @@ class AuthManager:
 
     def _incrementar_intentos_fallidos(self, username: str, max_intentos: int = 5):
         """Incrementa contador de intentos fallidos y bloquea si es necesario"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -304,7 +394,7 @@ class AuthManager:
 
     def _resetear_intentos_fallidos(self, username: str):
         """Resetea el contador de intentos fallidos"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -319,7 +409,7 @@ class AuthManager:
 
     def _actualizar_ultimo_acceso(self, username: str):
         """Actualiza fecha de último acceso"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -334,7 +424,7 @@ class AuthManager:
     def registrar_sesion(self, user_id: int, token_jti: str, refresh_jti: str,
                         ip_address: str, user_agent: str, expires_in: int = 3600) -> bool:
         """Registra una sesión JWT"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         try:
@@ -358,29 +448,42 @@ class AuthManager:
 
     def invalidar_sesion(self, token_jti: str) -> bool:
         """Invalida una sesión (logout)"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
             UPDATE sesiones
             SET activa = 0
-            WHERE token_jti = ?
-        ''', (token_jti,))
+            WHERE token_jti = ? OR refresh_jti = ?
+        ''', (token_jti, token_jti))
 
         conn.commit()
         conn.close()
         return True
 
+    def invalidar_sesiones_usuario(self, user_id: int) -> bool:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE sesiones SET activa = 0 WHERE user_id = ?', (user_id,))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error al invalidar sesiones: {e}")
+            return False
+        finally:
+            conn.close()
+
     def verificar_sesion_activa(self, token_jti: str) -> bool:
         """Verifica si una sesión está activa"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
             SELECT activa, fecha_expiracion
             FROM sesiones
-            WHERE token_jti = ?
-        ''', (token_jti,))
+            WHERE token_jti = ? OR refresh_jti = ?
+        ''', (token_jti, token_jti))
 
         row = cursor.fetchone()
         conn.close()
@@ -388,20 +491,85 @@ class AuthManager:
         if not row:
             return False
 
-        activa, fecha_exp_str = row
+        if isinstance(row, dict):
+            activa = row.get('activa')
+            fecha_exp_str = row.get('fecha_expiracion')
+        else:
+            activa = row[0] if len(row) > 0 else 0
+            fecha_exp_str = row[1] if len(row) > 1 else None
 
         if not activa:
             return False
 
-        fecha_exp = datetime.fromisoformat(fecha_exp_str)
+        if not fecha_exp_str:
+            return False
+
+        try:
+            fecha_exp = datetime.fromisoformat(str(fecha_exp_str))
+        except ValueError:
+            logger.warning(f"Formato inválido de fecha_expiracion para sesión {token_jti}: {fecha_exp_str}")
+            return False
+
         if datetime.now() > fecha_exp:
             return False
 
         return True
 
+    def obtener_2fa(self, user_id: int) -> Optional[Dict]:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT secreto, habilitado FROM usuarios_2fa WHERE user_id = ?', (user_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'secreto': row['secreto'] if isinstance(row, dict) else row[0],
+                'habilitado': (row['habilitado'] if isinstance(row, dict) else row[1]) == 1
+            }
+        finally:
+            conn.close()
+
+    def guardar_2fa(self, user_id: int, secreto: str, habilitado: bool = False) -> bool:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT user_id FROM usuarios_2fa WHERE user_id = ?', (user_id,))
+            exists = cursor.fetchone() is not None
+            if exists:
+                cursor.execute(
+                    'UPDATE usuarios_2fa SET secreto = ?, habilitado = ? WHERE user_id = ?',
+                    (secreto, 1 if habilitado else 0, user_id)
+                )
+            else:
+                cursor.execute(
+                    'INSERT INTO usuarios_2fa (user_id, secreto, habilitado) VALUES (?, ?, ?)',
+                    (user_id, secreto, 1 if habilitado else 0)
+                )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error al guardar 2FA: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def actualizar_2fa(self, user_id: int, habilitado: bool) -> bool:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE usuarios_2fa SET habilitado = ? WHERE user_id = ?', (1 if habilitado else 0, user_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error al actualizar 2FA: {e}")
+            return False
+        finally:
+            conn.close()
+
     def cambiar_contraseña(self, username: str, nueva_contraseña: str) -> bool:
         """Cambia la contraseña de un usuario"""
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         try:
@@ -434,7 +602,7 @@ class AuthManager:
         Returns:
             Diccionario con datos del usuario o None si no existe
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
         try:

@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, Badge } from '@/components/ui/Table'
+import { Table, Badge } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/services/api'
 import { useNavigate } from 'react-router-dom'
@@ -18,8 +18,6 @@ import {
   AlertCircle,
   TrendingUp,
   Clock,
-  Users,
-  Package,
   Search
 } from 'lucide-react'
 
@@ -35,6 +33,7 @@ interface NotaCredito {
   saldo_pendiente: number
   cantidad_pendiente: number
   estado: string
+  es_agente?: number
 }
 
 interface Aplicacion {
@@ -54,7 +53,7 @@ interface FacturaRechazada {
   nit_cliente: string
   nombre_cliente: string
   codigo_producto: string
-  nombre_producto: string
+  producto: string
   tipo_inventario: string
   valor_total: number
   razon_rechazo: string
@@ -69,6 +68,7 @@ interface Resumen {
     pendientes: number
     aplicadas: number
     saldo_pendiente: number
+    no_aplicadas: number
   }
 }
 
@@ -94,22 +94,44 @@ export default function OperativeReportPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadReport()
-  }, [])
-
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const response = await api.get(`/api/reporte/operativo?fecha=${fecha}`)
-      setData(response.data)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al cargar reporte')
+      const payload = response.data ?? {}
+      const resumenPayload = payload.resumen ?? {}
+      const resumenNotasPayload = resumenPayload.resumen_notas ?? {}
+
+      setData({
+        fecha: payload.fecha ?? fecha,
+        notas_credito: Array.isArray(payload.notas_credito) ? payload.notas_credito : [],
+        aplicaciones: Array.isArray(payload.aplicaciones) ? payload.aplicaciones : [],
+        facturas_rechazadas: Array.isArray(payload.facturas_rechazadas) ? payload.facturas_rechazadas : [],
+        resumen: {
+          total_notas: Number(resumenPayload.total_notas ?? 0),
+          total_aplicaciones: Number(resumenPayload.total_aplicaciones ?? 0),
+          total_rechazadas: Number(resumenPayload.total_rechazadas ?? 0),
+          resumen_notas: {
+            total: Number(resumenNotasPayload.total ?? 0),
+            pendientes: Number(resumenNotasPayload.pendientes ?? 0),
+            aplicadas: Number(resumenNotasPayload.aplicadas ?? 0),
+            saldo_pendiente: Number(resumenNotasPayload.saldo_pendiente ?? 0),
+            no_aplicadas: Number(resumenNotasPayload.no_aplicadas ?? 0),
+          }
+        }
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error al cargar reporte'
+      setError(message)
     } finally {
       setLoading(false)
     }
-  }
+  }, [fecha])
+
+  useEffect(() => {
+    loadReport()
+  }, [loadReport])
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFecha(e.target.value)
@@ -296,7 +318,7 @@ export default function OperativeReportPage() {
       label: 'Producto',
       render: (factura: FacturaRechazada) => (
         <div>
-          <p className="font-medium text-gray-900 truncate max-w-[200px]">{factura.nombre_producto}</p>
+          <p className="font-medium text-gray-900 truncate max-w-[200px]">{factura.producto}</p>
           <div className="flex items-center gap-2 mt-1">
             <p className="text-xs text-gray-500">{factura.codigo_producto}</p>
             <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
@@ -509,7 +531,7 @@ export default function OperativeReportPage() {
                     <Table
                       columns={notasColumns}
                       data={data.notas_credito}
-                      keyExtractor={(nota, idx) => nota.numero_nota + idx}
+                      keyExtractor={(nota) => `${nota.numero_nota}-${nota.fecha_nota}`}
                       hoverable
                       bordered
                     />
@@ -534,7 +556,7 @@ export default function OperativeReportPage() {
                     <Table
                       columns={aplicacionesColumns}
                       data={data.aplicaciones}
-                      keyExtractor={(app, idx) => app.numero_nota + app.numero_factura + idx}
+                      keyExtractor={(app) => `${app.numero_nota}-${app.numero_factura}-${app.fecha_aplicacion}`}
                       hoverable
                       bordered
                     />
@@ -559,7 +581,7 @@ export default function OperativeReportPage() {
                     <Table
                       columns={rechazadasColumns}
                       data={data.facturas_rechazadas}
-                      keyExtractor={(factura, idx) => factura.numero_factura + idx}
+                      keyExtractor={(factura) => `${factura.numero_factura}-${factura.fecha_factura}`}
                       hoverable
                       bordered
                     />
@@ -581,7 +603,7 @@ export default function OperativeReportPage() {
               </div>
             </CardHeader>
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="p-4 bg-gray-50 rounded-xl border-2 border-gray-200">
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
@@ -610,6 +632,16 @@ export default function OperativeReportPage() {
                     <p className="text-sm font-medium text-gray-600">Notas Aplicadas</p>
                   </div>
                   <p className="text-3xl font-bold text-emerald-600">{data.resumen.resumen_notas.aplicadas}</p>
+                </div>
+
+                <div className="p-4 bg-red-50 rounded-xl border-2 border-red-200">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                      <AlertCircle className="w-5 h-5 text-red-600" />
+                    </div>
+                    <p className="text-sm font-medium text-gray-600">No Aplicadas</p>
+                  </div>
+                  <p className="text-3xl font-bold text-red-600">{data.resumen.resumen_notas.no_aplicadas}</p>
                 </div>
               </div>
             </CardContent>

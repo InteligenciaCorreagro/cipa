@@ -1,9 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Table } from '@/components/ui/Table'
+import { Table } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/utils'
 import { 
   ArrowLeft, 
@@ -13,13 +13,14 @@ import {
   Calendar, 
   DollarSign, 
   Clock, 
-  TrendingUp,
   CheckCircle,
   AlertCircle,
   Loader2,
-  Receipt
+  Receipt,
+  TrendingUp
 } from 'lucide-react'
-import { api } from '@/services/api'
+import { notasApi } from '@/services/api'
+import type { NotaCredito } from '@/types'
 
 // Función para formatear fecha
 const formatDate = (dateString: string) => {
@@ -41,22 +42,9 @@ const formatDateTime = (dateString: string) => {
   })
 }
 
-interface Nota {
-  id: number
-  numero_nota: string
-  fecha_nota: string
-  fecha_registro: string
-  fecha_aplicacion_completa?: string
-  nit_cliente: string
-  nombre_cliente: string
-  codigo_producto: string
-  nombre_producto: string
-  tipo_inventario: string
-  cantidad: number
-  cantidad_pendiente: number
-  valor_total: number
-  saldo_pendiente: number
-  estado: string
+type Nota = NotaCredito & {
+  aplicaciones?: Aplicacion[]
+  motivos_no_aplicacion?: { motivo: string; detalle?: string; fecha_registro: string }[]
 }
 
 interface Aplicacion {
@@ -78,41 +66,26 @@ export default function NotaDetailPage() {
   const [loadingAplicaciones, setLoadingAplicaciones] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchNota()
-  }, [id])
-
-  useEffect(() => {
-    if (nota?.numero_nota) {
-      fetchAplicaciones()
-    }
-  }, [nota])
-
-  const fetchNota = async () => {
+  const fetchNota = useCallback(async () => {
     try {
       setLoadingNota(true)
-      const response = await api.get(`/api/notas/${id}`)
-      setNota(response.data)
+      const response = await notasApi.getNota(Number(id))
+      setNota(response)
+      setAplicaciones(response.aplicaciones || [])
+      setLoadingAplicaciones(false)
       setError(null)
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error al cargar nota:', err)
-      setError(err.message || 'Error al cargar la nota')
+      const message = err instanceof Error ? err.message : 'Error al cargar la nota'
+      setError(message)
     } finally {
       setLoadingNota(false)
     }
-  }
+  }, [id])
 
-  const fetchAplicaciones = async () => {
-    try {
-      setLoadingAplicaciones(true)
-      const response = await api.get(`/api/notas/${nota?.numero_nota}/aplicaciones`)
-      setAplicaciones(response.data || [])
-    } catch (err) {
-      console.error('Error al cargar aplicaciones:', err)
-    } finally {
-      setLoadingAplicaciones(false)
-    }
-  }
+  useEffect(() => {
+    fetchNota()
+  }, [fetchNota])
 
   if (loadingNota) {
     return (
@@ -149,12 +122,12 @@ export default function NotaDetailPage() {
   }
 
   const getEstadoBadge = (estado: string) => {
-    const estados: Record<string, { variant: any; icon: any }> = {
-      'PENDIENTE': { variant: 'warning', icon: Clock },
-      'PARCIAL': { variant: 'info', icon: TrendingUp },
-      'APLICADA': { variant: 'success', icon: CheckCircle }
+    const estados: Record<string, { icon: typeof Clock }> = {
+      'PENDIENTE': { icon: Clock },
+      'APLICADA': { icon: CheckCircle },
+      'NO_APLICADA': { icon: AlertCircle }
     }
-    const config = estados[estado] || { variant: 'default', icon: FileText }
+    const config = estados[estado] || { icon: FileText }
     const Icon = config.icon
     
     return (
@@ -162,21 +135,21 @@ export default function NotaDetailPage() {
         style={{
           background: estado === 'APLICADA' 
             ? 'linear-gradient(to right, rgb(236 253 245), rgb(209 250 229))'
-            : estado === 'PARCIAL'
-            ? 'linear-gradient(to right, rgb(239 246 255), rgb(219 234 254))'
+            : estado === 'NO_APLICADA'
+            ? 'linear-gradient(to right, rgb(254 226 226), rgb(254 202 202))'
             : 'linear-gradient(to right, rgb(255 247 237), rgb(254 243 199))',
           borderColor: estado === 'APLICADA'
             ? '#10b981'
-            : estado === 'PARCIAL'
-            ? '#3b82f6'
+            : estado === 'NO_APLICADA'
+            ? '#ef4444'
             : '#f59e0b'
         }}
       >
         <Icon className="w-4 h-4" style={{ 
-          color: estado === 'APLICADA' ? '#10b981' : estado === 'PARCIAL' ? '#3b82f6' : '#f59e0b' 
+          color: estado === 'APLICADA' ? '#10b981' : estado === 'NO_APLICADA' ? '#ef4444' : '#f59e0b' 
         }} />
         <span className="font-semibold text-sm" style={{ 
-          color: estado === 'APLICADA' ? '#059669' : estado === 'PARCIAL' ? '#2563eb' : '#d97706' 
+          color: estado === 'APLICADA' ? '#059669' : estado === 'NO_APLICADA' ? '#dc2626' : '#d97706' 
         }}>
           {estado}
         </span>
@@ -397,13 +370,6 @@ export default function NotaDetailPage() {
               </div>
             </div>
             
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <Package className="h-5 w-5 text-orange-600 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Tipo de Inventario</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{nota.tipo_inventario}</p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>
