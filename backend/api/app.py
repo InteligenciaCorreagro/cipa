@@ -69,7 +69,20 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=ACCESS_TOKEN_HOURS)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=REFRESH_TOKEN_DAYS)
 
 jwt = JWTManager(app)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+cors_origins_env = os.getenv('CORS_ORIGINS', '').strip()
+if cors_origins_env:
+    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+else:
+    cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+CORS(
+    app,
+    resources={r"/api/*": {"origins": cors_origins}},
+    supports_credentials=False,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+)
 
 # Rate Limiter
 try:
