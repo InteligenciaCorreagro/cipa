@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,7 @@ interface ResultadoProcesamiento {
   total_facturas_rechazadas: number
   total_aplicaciones: number
   archivo_generado: string
+  dias_con_error?: Array<{ fecha: string; error: string }>
 }
 
 interface ResultadoExportacion {
@@ -50,6 +51,9 @@ export default function AdminProcesarRangoPage() {
   const [loading, setLoading] = useState(false)
   const [resultado, setResultado] = useState<ResultadoProcesamiento | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [inicioProceso, setInicioProceso] = useState<number | null>(null)
+  const [estimadoSegundos, setEstimadoSegundos] = useState<number | null>(null)
+  const [segundosTranscurridos, setSegundosTranscurridos] = useState(0)
 
   // Estado para exportar desde BD
   const [fechaExportDesde, setFechaExportDesde] = useState('')
@@ -93,12 +97,15 @@ export default function AdminProcesarRangoPage() {
         setError('El rango máximo permitido es de 90 días')
         return
       }
+      const estimado = Math.min(Math.max(diffDays * 95, 90), 3600)
+      setEstimadoSegundos(estimado)
+      setInicioProceso(Date.now())
+      setSegundosTranscurridos(0)
 
       const response = await api.post('/api/admin/procesar-rango', {
         fecha_desde: fechaDesde,
         fecha_hasta: fechaHasta,
-      })
-
+      }, { timeout: 0 })
       setResultado(response.data)
     } catch (err) {
       console.error('Error al procesar rango:', err)
@@ -106,8 +113,19 @@ export default function AdminProcesarRangoPage() {
       setError(message)
     } finally {
       setLoading(false)
+      setInicioProceso(null)
+      setSegundosTranscurridos(0)
     }
   }
+
+  useEffect(() => {
+    if (!loading || !inicioProceso) return
+    const timer = window.setInterval(() => {
+      const seconds = Math.max(0, Math.floor((Date.now() - inicioProceso) / 1000))
+      setSegundosTranscurridos(seconds)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [loading, inicioProceso])
 
   // Exportar datos desde BD
   const handleExportar = async () => {
@@ -192,6 +210,15 @@ export default function AdminProcesarRangoPage() {
     { value: 'rechazadas', label: 'Rechazadas', icon: XCircle, desc: 'Facturas rechazadas' },
     { value: 'aplicaciones', label: 'Aplicaciones', icon: RefreshCw, desc: 'Historial de aplicaciones' },
   ]
+
+  const formatDuracion = (seconds: number) => {
+    const s = Math.max(0, Math.floor(seconds))
+    const min = Math.floor(s / 60)
+    const seg = s % 60
+    return `${min}m ${seg}s`
+  }
+
+  const segundosRestantes = estimadoSegundos ? Math.max(estimadoSegundos - segundosTranscurridos, 0) : null
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 py-2">
@@ -425,6 +452,21 @@ export default function AdminProcesarRangoPage() {
               </Alert>
             )}
 
+            {loading && (
+              <Alert>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <AlertDescription>
+                  <div className="space-y-1">
+                    <div>Proceso en ejecución.</div>
+                    <div className="text-xs">
+                      Tiempo transcurrido: {formatDuracion(segundosTranscurridos)}
+                      {segundosRestantes !== null ? ` · Estimado restante: ${formatDuracion(segundosRestantes)}` : ''}
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
             {resultado && (
               <Alert>
                 <CheckCircle2 className="h-4 w-4" />
@@ -442,6 +484,8 @@ export default function AdminProcesarRangoPage() {
                       <div className="font-medium">{resultado.total_facturas_rechazadas}</div>
                       <div>Aplicaciones realizadas:</div>
                       <div className="font-medium">{resultado.total_aplicaciones}</div>
+                      <div>Días con error:</div>
+                      <div className="font-medium">{resultado.dias_con_error?.length || 0}</div>
                     </div>
                     {resultado.archivo_generado && (
                       <Button

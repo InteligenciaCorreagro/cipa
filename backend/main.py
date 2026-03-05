@@ -1,8 +1,8 @@
 import os
-from pathlib import Path
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import logging
+import time
 from core.api_client import SiesaAPIClient
 from core.excel_processor import ExcelProcessor
 from core.email_sender import EmailSender
@@ -15,7 +15,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / 'output'
 
 
 def procesar_fecha(fecha, config, enviar_email=True):
@@ -35,9 +34,7 @@ def procesar_fecha(fecha, config, enviar_email=True):
         logger.info(f"Procesando fecha: {fecha.strftime('%Y-%m-%d')}")
         logger.info(f"={'='*60}")
 
-        # ============================================================
         # 1. OBTENER FACTURAS DE LA API
-        # ============================================================
         api_client = SiesaAPIClient(config['CONNI_KEY'], config['CONNI_TOKEN'])
         facturas_raw = api_client.obtener_facturas(fecha)
 
@@ -51,49 +48,29 @@ def procesar_fecha(fecha, config, enviar_email=True):
 
         logger.info(f"Total de documentos obtenidos de la API: {len(facturas_raw)}")
 
-        # ============================================================
-        # 2. INICIALIZAR GESTOR DE NOTAS CRÉDITO
-        # ============================================================
-        notas_manager = NotasCreditoManager()
+        # 2. INICIALIZAR GESTOR
+        notas_manager = NotasCreditoManager(config.get('DB_PATH', './data/notas_credito.db'))
 
-        # ============================================================
-        # 3. APLICAR REGLAS DE NEGOCIO Y SEPARAR NOTAS CRÉDITO
-        # ============================================================
+        # 3. APLICAR REGLAS DE NEGOCIO
         validator = BusinessRulesValidator()
         facturas_validas, notas_credito, facturas_rechazadas = validator.filtrar_facturas(facturas_raw)
 
-        logger.info(f"\n{'='*60}")
-        logger.info(f"RESULTADOS DEL FILTRADO:")
+        logger.info(f"\nRESULTADOS DEL FILTRADO:")
         logger.info(f"  - Facturas válidas: {len(facturas_validas)}")
         logger.info(f"  - Notas crédito: {len(notas_credito)}")
         logger.info(f"  - Facturas rechazadas: {len(facturas_rechazadas)}")
-        logger.info(f"{'='*60}\n")
 
-        # Registrar facturas rechazadas
+        # 4. REGISTRAR RECHAZADAS (BATCH)
         if facturas_rechazadas:
-            logger.info("Registrando facturas rechazadas...")
-            for item in facturas_rechazadas:
-                notas_manager.registrar_factura_rechazada(item['factura'], item['razon_rechazo'])
+            notas_manager.registrar_rechazadas_batch(facturas_rechazadas)
 
-        # ============================================================
-        # 4. GESTIONAR NOTAS CRÉDITO
-        # ============================================================
+        # 5. REGISTRAR NOTAS CRÉDITO (BATCH)
         notas_nuevas = 0
-
+        notas_filtradas = 0
         if notas_credito:
-            logger.info(f"\n{'='*60}")
-            logger.info(f"PROCESANDO NOTAS CRÉDITO")
-            logger.info(f"{'='*60}")
+            notas_nuevas, notas_filtradas = notas_manager.registrar_notas_batch(notas_credito)
 
-            for nota in notas_credito:
-                if notas_manager.registrar_nota_credito(nota):
-                    notas_nuevas += 1
-
-            logger.info(f"Notas crédito nuevas registradas: {notas_nuevas}")
-
-        # ============================================================
-        # 5. REGISTRAR FACTURAS CRUDAS Y APLICAR NOTAS EN CRUDO
-        # ============================================================
+        # 6. REGISTRAR FACTURAS (BATCH) y APLICAR NOTAS
         if not facturas_validas:
             logger.warning("No hay facturas válidas para procesar")
             return {
@@ -104,132 +81,62 @@ def procesar_fecha(fecha, config, enviar_email=True):
                 'facturas_rechazadas': len(facturas_rechazadas)
             }
 
-        logger.info(f"\n{'='*60}")
-        logger.info(f"REGISTRANDO FACTURAS CRUDAS EN BASE DE DATOS")
-        logger.info(f"{'='*60}")
+        t0 = time.time()
+        facturas_registradas = notas_manager.registrar_facturas_batch(facturas_validas)
+        logger.info(f"Facturas registradas en BD: {facturas_registradas} ({time.time()-t0:.1f}s)")
 
-        facturas_registradas = 0
-        for factura in facturas_validas:
-            if notas_manager.registrar_factura(factura):
-                facturas_registradas += 1
+        # 7. APLICAR NOTAS (OPTIMIZADO)
+        t0 = time.time()
+        aplicaciones = notas_manager.procesar_notas_para_facturas_optimizado(facturas_validas)
+        logger.info(f"Aplicaciones de notas: {len(aplicaciones)} ({time.time()-t0:.1f}s)")
 
-        logger.info(f"Facturas registradas en BD: {facturas_registradas} de {len(facturas_validas)}")
-
-        # ============================================================
-        # 6. APLICAR NOTAS CRÉDITO A FACTURAS CRUDAS
-        # ============================================================
-        logger.info(f"\n{'='*60}")
-        logger.info(f"APLICANDO NOTAS CRÉDITO A FACTURAS CRUDAS")
-        logger.info(f"{'='*60}")
-
-        aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_validas)
-
-        logger.info(f"Aplicaciones de notas realizadas: {len(aplicaciones)}")
-
-        if aplicaciones:
-            logger.info("\nResumen de aplicaciones:")
-            for app in aplicaciones[:5]:
-                logger.info(f"  Nota {app['numero_nota']} -> Factura {app['numero_factura']}: ${app['valor_aplicado']:,.2f}")
-            if len(aplicaciones) > 5:
-                logger.info(f"  ... y {len(aplicaciones) - 5} aplicaciones más")
-
-        # ============================================================
-        # 7. TRANSFORMAR FACTURAS VÁLIDAS PARA EXCEL
-        # ============================================================
-        logger.info(f"\n{'='*60}")
-        logger.info(f"TRANSFORMANDO FACTURAS PARA EXCEL")
-        logger.info(f"{'='*60}")
-
+        # 8. TRANSFORMAR Y GENERAR EXCEL
         excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
         facturas_transformadas = [
             excel_processor.transformar_factura(factura)
             for factura in facturas_validas
         ]
 
-        logger.info(f"Facturas transformadas: {len(facturas_transformadas)}")
-
-        # ============================================================
-        # 8. GENERAR ARCHIVOS
-        # ============================================================
-        logger.info(f"\n{'='*60}")
-        logger.info(f"GENERANDO ARCHIVOS DE SALIDA")
-        logger.info(f"{'='*60}")
-
         output_filename = f"facturas_{fecha.strftime('%Y%m%d')}.xlsx"
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        output_path = str(OUTPUT_DIR / output_filename)
-
+        output_path = os.path.join('./output', output_filename)
+        os.makedirs('./output', exist_ok=True)
         excel_processor.generar_excel(facturas_transformadas, output_path)
-        logger.info(f"Excel generado: {output_path}")
 
-        # ============================================================
-        # 9. GENERAR REPORTE DE RESUMEN
-        # ============================================================
+        # 9. GENERAR REPORTE
         resumen_path = os.path.join('./output', f"resumen_{fecha.strftime('%Y%m%d')}.txt")
+        resumen_notas = notas_manager.obtener_resumen_notas()
         with open(resumen_path, 'w', encoding='utf-8') as f:
             f.write(f"REPORTE DE PROCESAMIENTO - {fecha.strftime('%Y-%m-%d')}\n")
             f.write(f"{'='*80}\n\n")
+            f.write(f"Facturas válidas: {len(facturas_transformadas)}\n")
+            f.write(f"Facturas registradas en BD: {facturas_registradas}\n")
+            f.write(f"Facturas rechazadas: {len(facturas_rechazadas)}\n")
+            f.write(f"Notas detectadas: {len(notas_credito)}\n")
+            f.write(f"Notas nuevas: {notas_nuevas}\n")
+            f.write(f"Aplicaciones: {len(aplicaciones)}\n")
+            f.write(f"Notas pendientes: {resumen_notas.get('notas_pendientes', 0)}\n")
+            f.write(f"Saldo pendiente: ${resumen_notas.get('saldo_pendiente_total', 0):,.2f}\n")
 
-            f.write(f"FACTURAS PROCESADAS:\n")
-            f.write(f"  - Facturas válidas: {len(facturas_transformadas)}\n")
-            f.write(f"  - Facturas registradas en BD: {facturas_registradas}\n")
-            f.write(f"  - Facturas rechazadas: {len(facturas_rechazadas)}\n\n")
-
-            f.write(f"NOTAS DE CRÉDITO:\n")
-            f.write(f"  - Notas detectadas: {len(notas_credito)}\n")
-            f.write(f"  - Notas nuevas registradas: {notas_nuevas}\n")
-            f.write(f"  - Aplicaciones realizadas: {len(aplicaciones)}\n\n")
-
-            resumen_notas = notas_manager.obtener_resumen_notas()
-            f.write(f"ESTADO ACTUAL DE NOTAS:\n")
-            f.write(f"  - Notas pendientes: {resumen_notas.get('notas_pendientes', 0)}\n")
-            f.write(f"  - Saldo pendiente: ${resumen_notas.get('saldo_pendiente_total', 0):,.2f}\n")
-            f.write(f"  - Notas aplicadas (histórico): {resumen_notas.get('notas_aplicadas', 0)}\n")
-            f.write(f"  - Total aplicaciones (histórico): {resumen_notas.get('total_aplicaciones', 0)}\n\n")
-
-        logger.info(f"Reporte de resumen generado: {resumen_path}")
-
-        # ============================================================
-        # 10. ENVIAR EMAIL (OPCIONAL)
-        # ============================================================
+        # 10. ENVIAR EMAIL
         if enviar_email and config.get('EMAIL_USERNAME') and config.get('DESTINATARIOS'):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"ENVIANDO EMAIL A OPERATIVA")
-            logger.info(f"{'='*60}")
-
             email_sender = EmailSender(
                 config.get('SMTP_SERVER', 'smtp.gmail.com'),
                 int(config.get('SMTP_PORT', 587)),
                 config['EMAIL_USERNAME'],
                 config['EMAIL_PASSWORD']
             )
-
             exito_email = email_sender.enviar_reporte(
                 config.get('DESTINATARIOS', []),
                 output_path,
                 fecha
             )
-
             if exito_email:
                 logger.info("Email enviado exitosamente")
             else:
-                logger.warning("Error al enviar email (ver logs anteriores)")
-        else:
-            logger.info("\nEnvío de email omitido (configuración no disponible o deshabilitado)")
+                logger.warning("Error al enviar email")
 
-        # ============================================================
-        # 11. RESULTADO FINAL
-        # ============================================================
-        logger.info(f"\n{'='*60}")
-        logger.info(f"PROCESO COMPLETADO EXITOSAMENTE")
-        logger.info(f"{'='*60}")
-        logger.info(f"  Facturas procesadas: {len(facturas_transformadas)}")
-        logger.info(f"  Facturas en BD: {facturas_registradas}")
-        logger.info(f"  Notas crédito nuevas: {notas_nuevas}")
-        logger.info(f"  Aplicaciones: {len(aplicaciones)}")
-        logger.info(f"  Rechazadas: {len(facturas_rechazadas)}")
-        logger.info(f"  Archivo: {output_filename}")
-        logger.info(f"{'='*60}\n")
+        logger.info(f"\nPROCESO COMPLETADO: {len(facturas_transformadas)} facturas, "
+                    f"{notas_nuevas} notas, {len(aplicaciones)} aplicaciones")
 
         return {
             'exito': True,
@@ -239,6 +146,7 @@ def procesar_fecha(fecha, config, enviar_email=True):
             'facturas_registradas': facturas_registradas,
             'notas_credito': len(notas_credito),
             'notas_nuevas': notas_nuevas,
+            'notas_filtradas': notas_filtradas,
             'facturas_rechazadas': len(facturas_rechazadas),
             'aplicaciones': len(aplicaciones),
             'archivo_generado': output_path,
@@ -252,166 +160,135 @@ def procesar_fecha(fecha, config, enviar_email=True):
 
 def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
     """
-    Procesa un rango de fechas y genera un Excel consolidado
+    Procesa un rango de fechas - VERSIÓN OPTIMIZADA
+
+    OPTIMIZACIONES:
+    - Una sola llamada API por día (ya existente)
+    - Batch INSERT para facturas, rechazadas y notas
+    - Aplicación de notas con pre-carga en memoria
+    - Transformación y Excel consolidados al final
 
     Args:
         fecha_desde: datetime - Fecha inicial
         fecha_hasta: datetime - Fecha final
-        config: dict - Configuración con claves API, SMTP, etc.
+        config: dict - Configuración
 
     Returns:
-        dict - Resultado del procesamiento consolidado
+        dict - Resultado consolidado
     """
     try:
+        t_inicio = time.time()
         logger.info(f"={'='*60}")
         logger.info(f"Procesando rango: {fecha_desde.strftime('%Y-%m-%d')} a {fecha_hasta.strftime('%Y-%m-%d')}")
         logger.info(f"={'='*60}")
 
-        todas_facturas_transformadas = []
-        total_notas = 0
-        total_rechazadas = 0
-        total_aplicaciones = 0
-        aplicaciones_all = []
-        total_facturas_procesadas = 0
-
-        # Inicializar managers y processors
-        notas_manager = NotasCreditoManager()
+        # Inicializar componentes una sola vez
+        notas_manager = NotasCreditoManager(config.get('DB_PATH', './data/notas_credito.db'))
         excel_processor = ExcelProcessor(config.get('TEMPLATE_PATH', './templates/plantilla.xlsx'))
         api_client = SiesaAPIClient(config['CONNI_KEY'], config['CONNI_TOKEN'])
         validator = BusinessRulesValidator()
 
-        def factura_completa(factura):
-            es_cruda = any(k in factura for k in ('f_prefijo', 'f_nrodocto', 'f_cod_item'))
-            if es_cruda:
-                codigo = factura.get('f_cod_item') or factura.get('f_rowid_movto') or factura.get('f_rowid') or factura.get('f_desc_item')
-                return bool(str(factura.get('f_prefijo', '')).strip()) and bool(str(factura.get('f_nrodocto', '')).strip()) and bool(str(codigo or '').strip()) and bool(str(factura.get('f_cliente_desp', '')).strip())
-            codigo = factura.get('codigo_producto') or factura.get('codigo_producto_api') or factura.get('rowid_movto') or factura.get('rowid') or factura.get('nombre_producto')
-            return bool(str(factura.get('numero_factura', '')).strip()) and bool(str(codigo or '').strip()) and bool(str(factura.get('nit_cliente', factura.get('nit_comprador', ''))).strip())
+        # Acumuladores
+        todas_facturas_validas = []
+        todas_notas_credito = []
+        todas_rechazadas = []
+        total_facturas_procesadas = 0
 
-        usar_consulta_rango = os.getenv('SIESA_RANGO_UNICO', '1') == '1'
+        # ================================================================
+        # FASE 1: Obtener datos de API y filtrar (por día)
+        # ================================================================
+        fecha_actual = fecha_desde
+        while fecha_actual <= fecha_hasta:
+            fecha_str = fecha_actual.strftime('%Y-%m-%d')
+            logger.info(f"\n--- Consultando API para {fecha_str} ---")
 
-        if usar_consulta_rango:
-            logger.info("Consultando API en una sola llamada por rango")
-            facturas_raw = api_client.obtener_facturas(fecha_desde, fecha_hasta)
+            t0 = time.time()
+            facturas_raw = api_client.obtener_facturas(fecha_actual)
+            logger.info(f"API respondió en {time.time()-t0:.1f}s: {len(facturas_raw) if facturas_raw else 0} documentos")
 
             if facturas_raw:
+                t0 = time.time()
                 facturas_validas, notas_credito, facturas_rechazadas = validator.filtrar_facturas(facturas_raw)
+                logger.info(f"Filtrado en {time.time()-t0:.1f}s: {len(facturas_validas)} válidas, "
+                           f"{len(notas_credito)} notas, {len(facturas_rechazadas)} rechazadas")
 
-                total_notas += len(notas_credito)
-                total_rechazadas += len(facturas_rechazadas)
+                todas_facturas_validas.extend(facturas_validas)
+                todas_notas_credito.extend(notas_credito)
+                todas_rechazadas.extend(facturas_rechazadas)
 
-                for nota in notas_credito:
-                    notas_manager.registrar_nota_credito(nota)
+            fecha_actual += timedelta(days=1)
 
-                ok, error_detalle = notas_manager.registrar_facturas_y_rechazos(
-                    facturas_validas,
-                    facturas_rechazadas
-                )
-                if not ok:
-                    logger.error(f"Error en registro de facturas: {error_detalle}")
-                    return {
-                        'exito': False,
-                        'mensaje': f"Error en registro de facturas: {error_detalle}"
-                    }
+        logger.info(f"\n{'='*60}")
+        logger.info(f"TOTALES ACUMULADOS:")
+        logger.info(f"  Facturas válidas: {len(todas_facturas_validas)}")
+        logger.info(f"  Notas crédito: {len(todas_notas_credito)}")
+        logger.info(f"  Rechazadas: {len(todas_rechazadas)}")
+        logger.info(f"{'='*60}")
 
-                facturas_procesables = [f for f in facturas_validas if factura_completa(f)]
-                if facturas_procesables:
-                    aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_procesables)
-                    total_aplicaciones += len(aplicaciones)
-                    aplicaciones_all.extend(aplicaciones)
-            else:
-                logger.warning("No se encontraron facturas para el rango especificado")
-        else:
-            fecha_actual = fecha_desde
-            while fecha_actual <= fecha_hasta:
-                logger.info(f"Procesando día: {fecha_actual.strftime('%Y-%m-%d')}")
+        # ================================================================
+        # FASE 2: Registrar todo en BD con operaciones batch
+        # ================================================================
 
-                facturas_raw = api_client.obtener_facturas(fecha_actual)
+        # 2a. Registrar rechazadas (batch)
+        t0 = time.time()
+        if todas_rechazadas:
+            notas_manager.registrar_rechazadas_batch(todas_rechazadas)
+        logger.info(f"Rechazadas registradas en {time.time()-t0:.1f}s")
 
-                if facturas_raw:
-                    facturas_validas, notas_credito, facturas_rechazadas = validator.filtrar_facturas(facturas_raw)
+        # 2b. Registrar notas crédito (batch)
+        t0 = time.time()
+        notas_nuevas = 0
+        notas_filtradas = 0
+        if todas_notas_credito:
+            notas_nuevas, notas_filtradas = notas_manager.registrar_notas_batch(todas_notas_credito)
+        logger.info(f"Notas registradas en {time.time()-t0:.1f}s: {notas_nuevas} nuevas, {notas_filtradas} filtradas")
 
-                    total_notas += len(notas_credito)
-                    total_rechazadas += len(facturas_rechazadas)
+        # 2c. Registrar facturas válidas (batch)
+        t0 = time.time()
+        facturas_registradas = 0
+        if todas_facturas_validas:
+            facturas_registradas = notas_manager.registrar_facturas_batch(todas_facturas_validas)
+        logger.info(f"Facturas registradas en {time.time()-t0:.1f}s: {facturas_registradas}")
 
-                    for nota in notas_credito:
-                        notas_manager.registrar_nota_credito(nota)
+        # 2d. Aplicar notas a facturas (optimizado)
+        t0 = time.time()
+        total_aplicaciones = 0
+        if todas_facturas_validas:
+            aplicaciones = notas_manager.procesar_notas_para_facturas_optimizado(todas_facturas_validas)
+            total_aplicaciones = len(aplicaciones)
+        logger.info(f"Notas aplicadas en {time.time()-t0:.1f}s: {total_aplicaciones} aplicaciones")
 
-                    ok, error_detalle = notas_manager.registrar_facturas_y_rechazos(
-                        facturas_validas,
-                        facturas_rechazadas
-                    )
-                    if not ok:
-                        logger.error(f"Error en registro de facturas: {error_detalle}")
-                        return {
-                            'exito': False,
-                            'mensaje': f"Error en registro de facturas: {error_detalle}"
-                        }
-
-                    facturas_procesables = [f for f in facturas_validas if factura_completa(f)]
-                    if facturas_procesables:
-                        aplicaciones = notas_manager.procesar_notas_para_facturas(facturas_procesables)
-                        total_aplicaciones += len(aplicaciones)
-                        aplicaciones_all.extend(aplicaciones)
-
-                fecha_actual += timedelta(days=1)
-
-        aplicaciones_map = {}
-        for app in aplicaciones_all:
-            key = (
-                app.get('numero_factura', ''),
-                app.get('codigo_producto', ''),
-                int(app.get('indice_linea', 0) or 0)
-            )
-            entry = aplicaciones_map.get(key)
-            if not entry:
-                aplicaciones_map[key] = {'valor': 0.0, 'cantidad': 0.0, 'notas': []}
-                entry = aplicaciones_map[key]
-            entry['valor'] += float(app.get('valor_aplicado', 0) or 0)
-            entry['cantidad'] += float(app.get('cantidad_aplicada', 0) or 0)
-            nota_num = app.get('numero_nota')
-            if nota_num and nota_num not in entry['notas']:
-                entry['notas'].append(nota_num)
-
-        facturas_db = notas_manager.obtener_facturas_rango(
-            fecha_desde.strftime('%Y-%m-%d'),
-            fecha_hasta.strftime('%Y-%m-%d')
-        )
-        todas_facturas_transformadas = []
-        for row in facturas_db:
-            payload = row.get('raw_payload')
-            if not payload:
-                continue
-            try:
-                factura = json.loads(payload)
-            except Exception:
-                continue
-            factura['_indice_linea'] = row.get('indice_linea', 0)
-            key = (
-                row.get('numero_factura', ''),
-                row.get('codigo_producto', ''),
-                int(row.get('indice_linea', 0) or 0)
-            )
-            entry = aplicaciones_map.get(key)
-            if entry:
-                factura['descuento_valor'] = entry['valor']
-                factura['descuento_cantidad'] = entry['cantidad']
-                factura['nota_aplicada'] = ','.join(entry['notas'])
-            todas_facturas_transformadas.append(excel_processor.transformar_factura(factura))
-
-        total_facturas_procesadas = len(todas_facturas_transformadas)
-
+        # ================================================================
+        # FASE 3: Generar Excel consolidado
+        # ================================================================
+        t0 = time.time()
         output_filename = f"facturas_rango_{fecha_desde.strftime('%Y%m%d')}_{fecha_hasta.strftime('%Y%m%d')}.xlsx"
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        output_path = str(OUTPUT_DIR / output_filename)
+        output_path = os.path.join('./output', output_filename)
+        os.makedirs('./output', exist_ok=True)
 
-        if todas_facturas_transformadas:
-            excel_processor.generar_excel(todas_facturas_transformadas, output_path)
-            logger.info(f"Excel consolidado generado: {output_path}")
+        if todas_facturas_validas:
+            facturas_transformadas = [
+                excel_processor.transformar_factura(factura)
+                for factura in todas_facturas_validas
+            ]
+            total_facturas_procesadas = len(facturas_transformadas)
+            excel_processor.generar_excel(facturas_transformadas, output_path)
+            logger.info(f"Excel generado en {time.time()-t0:.1f}s: {output_path}")
         else:
             logger.warning("No se generaron facturas, no se crea Excel")
 
+        # Resumen
         resumen_notas = notas_manager.obtener_resumen_notas()
+
+        t_total = time.time() - t_inicio
+        logger.info(f"\n{'='*60}")
+        logger.info(f"RANGO COMPLETADO en {t_total:.1f}s ({t_total/60:.1f} min)")
+        logger.info(f"  Facturas procesadas: {total_facturas_procesadas}")
+        logger.info(f"  Facturas en BD: {facturas_registradas}")
+        logger.info(f"  Notas nuevas: {notas_nuevas}")
+        logger.info(f"  Aplicaciones: {total_aplicaciones}")
+        logger.info(f"  Rechazadas: {len(todas_rechazadas)}")
+        logger.info(f"{'='*60}")
 
         return {
             'exito': True,
@@ -420,13 +297,14 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
             'fecha_hasta': fecha_hasta.strftime('%Y-%m-%d'),
             'total_dias': (fecha_hasta - fecha_desde).days + 1,
             'total_facturas_procesadas': total_facturas_procesadas,
-            'total_notas_credito': total_notas,
-            'total_facturas_rechazadas': total_rechazadas,
+            'total_notas_credito': len(todas_notas_credito),
+            'total_facturas_rechazadas': len(todas_rechazadas),
             'total_aplicaciones': total_aplicaciones,
             'notas_pendientes': resumen_notas.get('notas_pendientes', 0),
             'notas_aplicadas': resumen_notas.get('notas_aplicadas', 0),
             'saldo_pendiente_total': resumen_notas.get('saldo_pendiente_total', 0.0),
-            'archivo_generado': output_filename
+            'archivo_generado': output_filename,
+            'tiempo_total_segundos': round(t_total, 1)
         }
 
     except Exception as e:
@@ -435,12 +313,10 @@ def procesar_rango_fechas(fecha_desde, fecha_hasta, config):
 
 
 def main():
-    """Función principal del proceso con reglas de negocio y gestión de notas crédito"""
+    """Función principal del proceso"""
     try:
-        # Cargar variables de entorno
         load_dotenv()
 
-        # Preparar configuración
         config = {
             'CONNI_KEY': os.getenv('CONNI_KEY'),
             'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
@@ -449,28 +325,22 @@ def main():
             'EMAIL_USERNAME': os.getenv('EMAIL_USERNAME'),
             'EMAIL_PASSWORD': os.getenv('EMAIL_PASSWORD'),
             'DESTINATARIOS': os.getenv('DESTINATARIOS', '').split(',') if os.getenv('DESTINATARIOS') else [],
-            'TEMPLATE_PATH': os.getenv('TEMPLATE_PATH', './templates/plantilla.xlsx')
+            'TEMPLATE_PATH': os.getenv('TEMPLATE_PATH', './templates/plantilla.xlsx'),
+            'DB_PATH': os.getenv('DB_PATH', './data/notas_credito.db')
         }
 
-        # Validar configuración mínima
         if not all([config['CONNI_KEY'], config['CONNI_TOKEN']]):
             raise ValueError("Faltan variables de entorno: CONNI_KEY y CONNI_TOKEN son requeridas")
 
-        # Calcular fecha del día anterior
         fecha_reporte = datetime.now() - timedelta(days=1)
 
-        # Procesar la fecha
         resultado = procesar_fecha(fecha_reporte, config, enviar_email=True)
 
         if resultado['exito']:
-            logger.info(f"\n{'='*60}")
-            logger.info(f"PROCESO COMPLETADO EXITOSAMENTE")
-            logger.info(f"  - Facturas procesadas: {resultado.get('facturas_procesadas', 0)}")
-            logger.info(f"  - Notas crédito: {resultado.get('notas_credito', 0)}")
+            logger.info(f"\nPROCESO COMPLETADO EXITOSAMENTE")
+            logger.info(f"  - Facturas: {resultado.get('facturas_procesadas', 0)}")
+            logger.info(f"  - Notas: {resultado.get('notas_credito', 0)}")
             logger.info(f"  - Aplicaciones: {resultado.get('aplicaciones', 0)}")
-            logger.info(f"{'='*60}")
-        else:
-            logger.error(f"El proceso completó con errores: {resultado.get('mensaje')}")
 
     except Exception as e:
         logger.error(f"Error en el proceso principal: {e}", exc_info=True)

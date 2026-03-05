@@ -112,6 +112,11 @@ def _set_cache(key: str, value, ttl_seconds: int):
         'expires': time.time() + ttl_seconds
     }
 
+
+def _calcular_estimado_segundos(total_dias: int) -> int:
+    dias = max(int(total_dias or 1), 1)
+    return min(max(dias * 95, 90), 3600)
+
 def registrar_log(entidad: str, accion: str, entidad_id: str, usuario: str, payload: dict):
     try:
         conn = get_db_connection()
@@ -827,6 +832,114 @@ def listar_transacciones():
     except Exception as e:
         logger.error(f"Error en listar_transacciones: {e}")
         return jsonify({"error": "Error al obtener transacciones"}), 500
+
+
+@app.route('/api/facturas/transado-mensual', methods=['GET'])
+@jwt_required()
+def transado_mensual_facturas():
+    try:
+        limite = int(request.args.get('limite', 12))
+        if limite <= 0:
+            limite = 12
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if conn.engine == 'mysql':
+            cursor.execute('''
+                SELECT DATE_FORMAT(fecha_factura, '%Y-%m') AS periodo,
+                       SUM(valor_total) AS valor_total,
+                       COUNT(*) AS total_facturas
+                FROM facturas
+                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
+                GROUP BY DATE_FORMAT(fecha_factura, '%Y-%m')
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+        else:
+            cursor.execute('''
+                SELECT SUBSTR(fecha_factura, 1, 7) AS periodo,
+                       SUM(valor_total) AS valor_total,
+                       COUNT(*) AS total_facturas
+                FROM facturas
+                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
+                GROUP BY SUBSTR(fecha_factura, 1, 7)
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        items = []
+        for row in reversed(rows):
+            periodo = str(row['periodo']) if row.get('periodo') else ''
+            items.append({
+                "periodo": periodo,
+                "valor_total": float(row['valor_total'] or 0),
+                "total_facturas": int(row['total_facturas'] or 0)
+            })
+
+        return jsonify({
+            "items": items,
+            "limite": limite
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en transado_mensual_facturas: {e}")
+        return jsonify({"error": "Error al obtener transado mensual"}), 500
+
+
+@app.route('/api/notas/aplicado-mensual', methods=['GET'])
+@jwt_required()
+def aplicado_mensual_notas():
+    try:
+        limite = int(request.args.get('limite', 12))
+        if limite <= 0:
+            limite = 12
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if conn.engine == 'mysql':
+            cursor.execute('''
+                SELECT DATE_FORMAT(fecha_aplicacion, '%Y-%m') AS periodo,
+                       SUM(valor_aplicado) AS valor_aplicado,
+                       COUNT(*) AS total_aplicaciones
+                FROM aplicaciones_notas
+                GROUP BY DATE_FORMAT(fecha_aplicacion, '%Y-%m')
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+        else:
+            cursor.execute('''
+                SELECT SUBSTR(fecha_aplicacion, 1, 7) AS periodo,
+                       SUM(valor_aplicado) AS valor_aplicado,
+                       COUNT(*) AS total_aplicaciones
+                FROM aplicaciones_notas
+                GROUP BY SUBSTR(fecha_aplicacion, 1, 7)
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        items = []
+        for row in reversed(rows):
+            periodo = str(row['periodo']) if row.get('periodo') else ''
+            items.append({
+                "periodo": periodo,
+                "valor_aplicado": float(row['valor_aplicado'] or 0),
+                "total_aplicaciones": int(row['total_aplicaciones'] or 0)
+            })
+
+        return jsonify({
+            "items": items,
+            "limite": limite
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en aplicado_mensual_notas: {e}")
+        return jsonify({"error": "Error al obtener aplicado mensual de notas"}), 500
 
 
 @app.route('/api/facturas/rechazadas', methods=['GET'])
@@ -2295,7 +2408,7 @@ def procesar_rango():
         if claims.get('rol') not in ('admin', 'editor'):
             return jsonify({"error": "No tiene permisos"}), 403
 
-        data = request.get_json()
+        data = request.get_json() or {}
         fecha_desde_str = data.get('fecha_desde')
         fecha_hasta_str = data.get('fecha_hasta')
 
@@ -2313,11 +2426,6 @@ def procesar_rango():
         if fecha_desde > fecha_hasta:
             return jsonify({"error": "Fecha desde debe ser anterior a fecha hasta"}), 400
 
-        # Importar función de procesamiento
-        sys.path.insert(0, str(BACKEND_DIR))
-        from main import procesar_rango_fechas
-
-        # Configuración
         config = {
             'CONNI_KEY': os.getenv('CONNI_KEY'),
             'CONNI_TOKEN': os.getenv('CONNI_TOKEN'),
@@ -2327,9 +2435,11 @@ def procesar_rango():
         if not config['CONNI_KEY'] or not config['CONNI_TOKEN']:
             return jsonify({"error": "Credenciales API no configuradas"}), 500
 
-        # Ejecutar procesamiento
+        sys.path.insert(0, str(BACKEND_DIR))
+        from main import procesar_rango_fechas
         resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
-
+        total_dias = max((fecha_hasta - fecha_desde).days + 1, 1)
+        resultado['estimado_segundos'] = _calcular_estimado_segundos(total_dias)
         return jsonify(resultado), 200
 
     except Exception as e:
@@ -2451,10 +2561,11 @@ def internal_error(error):
 
 if __name__ == '__main__':
     port = int(os.getenv('API_PORT', 2500))
+    debug_mode = str(os.getenv('FLASK_DEBUG', '0')).lower() in ('1', 'true', 'yes')
     logger.info(f"Iniciando API en puerto {port}")
     engine = get_engine()
     if engine == 'mysql':
         logger.info("Base de datos: MySQL")
     else:
         logger.info(f"Base de datos: {DB_PATH}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=debug_mode)

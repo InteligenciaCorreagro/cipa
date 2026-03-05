@@ -89,7 +89,7 @@ class BusinessRulesValidator:
         for valor_excluido in self.AGENTES_RETENCION_EXCLUIDOS:
             valor_excluido_normalizado = valor_excluido.upper()
             if valor_excluido_normalizado in agente_normalizado:
-                logger.warning(f"⚠️ Factura rechazada: NO AGENTE DE RETENCION (f_02_014='{agente_retencion}') - "
+                logger.debug(f"⚠️ Factura rechazada: NO AGENTE DE RETENCION (f_02_014='{agente_retencion}') - "
                              f"Factura: {self.obtener_numero_factura_completo(factura)}")
                 return True
         
@@ -161,7 +161,7 @@ class BusinessRulesValidator:
         
         # Log de auditoría si se detectan espacios (problema común de la API)
         if tipo_inventario_raw and str(tipo_inventario_raw) != str(tipo_inventario_raw).strip():
-            logger.warning(
+            logger.debug(
                 f"⚠️ Tipo de inventario con espacios detectado: '{tipo_inventario_raw}' "
                 f"→ normalizado a: '{tipo_inventario}' "
                 f"(Factura: {self.obtener_numero_factura_completo(factura)})"
@@ -285,7 +285,7 @@ class BusinessRulesValidator:
                     'factura': factura,
                     'razon_rechazo': razon
                 })
-                logger.warning(f"❌ Rechazada por puntas iguales: {self.obtener_numero_factura_completo(factura)}")
+                logger.debug(f"❌ Rechazada por puntas iguales: {self.obtener_numero_factura_completo(factura)}")
             elif self.es_nota_credito(factura):
                 if self.es_agente_retencion_no_permitido(factura):
                     razon = f"NO AGENTE DE RETENCION (f_02_014='{factura.get('f_02_014', '')}') - No debe registrarse"
@@ -293,7 +293,7 @@ class BusinessRulesValidator:
                         'factura': factura,
                         'razon_rechazo': razon
                     })
-                    logger.warning(f"❌ Nota crédito rechazada por agente: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
+                    logger.debug(f"❌ Nota crédito rechazada por agente: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
                 else:
                     if not self.tipo_inventario_permitido(factura):
                         tipo_inv = self._obtener_tipo_inventario_normalizado(factura)
@@ -302,7 +302,7 @@ class BusinessRulesValidator:
                             'factura': factura,
                             'razon_rechazo': razon
                         })
-                        logger.warning(f"❌ Nota crédito rechazada por tipo inventario: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
+                        logger.debug(f"❌ Nota crédito rechazada por tipo inventario: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
                     else:
                         notas_credito.append(factura)
                         logger.debug(f"✅ Nota crédito aceptada: {factura.get('f_prefijo', '')}{factura.get('f_nrodocto', '')}")
@@ -346,7 +346,7 @@ class BusinessRulesValidator:
             # Si todas las líneas de la factura fueron rechazadas por tipo de inventario
             if len(lineas_validas_factura) == 0 and len(lineas_rechazadas_factura) > 0:
                 facturas_rechazadas.extend(lineas_rechazadas_factura)
-                logger.info(f"Factura rechazada por tipo inventario: {numero_factura} - {len(lineas)} líneas")
+                logger.debug(f"Factura rechazada por tipo inventario: {numero_factura} - {len(lineas)} líneas")
                 continue
 
             total_factura_procesable = self.calcular_total_factura(lineas_validas_factura)
@@ -367,7 +367,7 @@ class BusinessRulesValidator:
                 if lineas_rechazadas_factura:
                     facturas_rechazadas.extend(lineas_rechazadas_factura)
 
-                logger.info(
+                logger.debug(
                     f"Factura rechazada por monto procesable: {numero_factura} - "
                     f"Total bruto: ${total_factura_bruta:,.2f}, "
                     f"Total procesable: ${total_factura_procesable:,.2f} "
@@ -380,14 +380,14 @@ class BusinessRulesValidator:
 
             if len(lineas_rechazadas_factura) > 0:
                 facturas_rechazadas.extend(lineas_rechazadas_factura)
-                logger.info(
+                logger.debug(
                     f"Factura {numero_factura}: total bruto ${total_factura_bruta:,.2f}, "
                     f"total procesable ${total_factura_procesable:,.2f}, "
                     f"{len(lineas_validas_factura)} líneas válidas, "
                     f"{len(lineas_rechazadas_factura)} líneas rechazadas por tipo inventario"
                 )
             else:
-                logger.info(
+                logger.debug(
                     f"Factura válida: {numero_factura} - "
                     f"Total acoplado procesable: ${total_factura_procesable:,.2f} ({len(lineas)} líneas)"
                 )

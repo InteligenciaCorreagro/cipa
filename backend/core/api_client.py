@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import logging
 import json
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,14 +15,19 @@ class SiesaAPIClient:
     BASE_URL = "https://siesaprod.cipa.com.co/produccion/v3/ejecutarconsulta"
     
     def __init__(self, conni_key: str, conni_token: str):
+        self.conni_key = conni_key
+        self.conni_token = conni_token
         self.headers = {
             "Connikey": conni_key,
+            "conniKey": conni_key,
             "conniToken": conni_token,
             "Content-Type": "application/json"
         }
         self.base_url = os.getenv("SIESA_BASE_URL", self.BASE_URL)
         self.method = os.getenv("SIESA_METHOD", "GET").upper()
         self.allow_post_retry = os.getenv("SIESA_ALLOW_POST_RETRY", "0") == "1"
+        self.timeout = int(os.getenv("SIESA_TIMEOUT_SECONDS", "45"))
+        self.max_retries = int(os.getenv("SIESA_MAX_RETRIES", "3"))
         alt_urls = os.getenv("SIESA_ALT_URLS", "")
         self.alt_urls = [u.strip() for u in alt_urls.split(",") if u.strip()]
     
@@ -43,36 +49,36 @@ class SiesaAPIClient:
         params = {
             "idCompania": "37",
             "descripcion": "Api_Consulta_Fac_Correagro",
-            "parametros": f"FECHA_INI='{fecha_ini_str}'|FECHA_FIN='{fecha_fin_str}'"
+            "parametros": f"FECHA_INI='{fecha_ini_str}'|FECHA_FIN='{fecha_fin_str}'",
+            "conniKey": self.conni_key,
+            "conniToken": self.conni_token
         }
 
         try:
             logger.info(f"Consultando facturas para la fecha: {fecha_ini_str} a {fecha_fin_str}")
             logger.info(f"URL: {self.base_url}")
-            logger.info(f"Parámetros: {params}")
+            logger.info(f"Parámetros: {self._safe_params(params)}")
 
-            response = self._request(self.method, self.base_url, params)
+            response = self._request_with_retries(self.method, self.base_url, params)
 
-            if response.status_code in (404, 405) and self.allow_post_retry:
+            if response.status_code in (404, 405, 520, 522, 524) and self.allow_post_retry:
                 logger.warning(f"Respuesta {response.status_code}. Intentando método alterno POST.")
-                response = self._request("POST", self.base_url, params)
+                response = self._request_with_retries("POST", self.base_url, params)
 
-            if response.status_code == 404 and self.alt_urls:
+            if response.status_code in (404, 405, 520, 522, 524) and self.alt_urls:
                 for alt_url in self.alt_urls:
                     logger.warning(f"Intentando URL alternativa: {alt_url}")
-                    response = self._request(self.method, alt_url, params)
-                    if response.status_code not in (404, 405):
+                    response = self._request_with_retries(self.method, alt_url, params)
+                    if response.status_code not in (404, 405, 520, 522, 524):
                         break
                     if self.allow_post_retry:
-                        response = self._request("POST", alt_url, params)
-                        if response.status_code not in (404, 405):
+                        response = self._request_with_retries("POST", alt_url, params)
+                        if response.status_code not in (404, 405, 520, 522, 524):
                             break
 
-            # Log de la URL completa generada
-            logger.info(f"URL completa: {response.url}")
+            logger.info(f"URL completa: {self._safe_url(response.url)}")
 
-            # Intentar obtener el cuerpo de la respuesta antes de raise_for_status
-            if response.status_code in (400, 404, 405):
+            if response.status_code in (400, 404, 405, 520, 522, 524):
                 logger.error(f"Error {response.status_code} - Respuesta del servidor:")
                 try:
                     error_data = response.json()
@@ -163,11 +169,45 @@ class SiesaAPIClient:
                 url,
                 json=params,
                 headers=self.headers,
-                timeout=30
+                timeout=self.timeout
             )
         return requests.get(
             url,
             params=params,
             headers=self.headers,
-            timeout=30
+            timeout=self.timeout
         )
+
+    def _request_with_retries(self, method: str, url: str, params: Dict):
+        transient_status = {408, 429, 500, 502, 503, 504, 520, 522, 524}
+        last_response = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self._request(method, url, params)
+                last_response = response
+                if response.status_code not in transient_status:
+                    return response
+                logger.warning(f"Intento {attempt}/{self.max_retries} recibió {response.status_code}")
+            except requests.exceptions.RequestException as exc:
+                logger.warning(f"Intento {attempt}/{self.max_retries} con excepción de red: {exc}")
+                if attempt == self.max_retries:
+                    raise
+            if attempt < self.max_retries:
+                time.sleep(min(2 * attempt, 6))
+        return last_response if last_response is not None else self._request(method, url, params)
+
+    def _safe_params(self, params: Dict):
+        redacted = dict(params)
+        if 'conniKey' in redacted:
+            redacted['conniKey'] = '***'
+        if 'conniToken' in redacted:
+            redacted['conniToken'] = '***'
+        return redacted
+
+    def _safe_url(self, url: str):
+        safe = str(url)
+        if self.conni_key:
+            safe = safe.replace(self.conni_key, '***')
+        if self.conni_token:
+            safe = safe.replace(self.conni_token, '***')
+        return safe

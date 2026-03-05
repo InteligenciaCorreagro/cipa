@@ -6,6 +6,6 @@
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
-    "startCommand": "python api/app.py"
+    "startCommand": "gunicorn --chdir api app:app --bind 0.0.0.0:8080 --workers 2 --threads 8 --timeout 0"
   }
 }
