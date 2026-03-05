@@ -33,6 +33,9 @@ interface FacturaRow {
   registrable: number
   total_repeticiones: number
   suma_total_repeticiones: number
+  ultima_nota_aplicada?: string | null
+  monto_ultima_aplicacion?: number
+  monto_total_aplicado?: number
 }
 
 interface FacturasStats {
@@ -182,6 +185,27 @@ export default function FacturasPage() {
       align: 'right' as const,
       render: (f: FacturaRow) => (
         <span className="font-semibold text-emerald-900">{formatCurrency(f.valor_total)}</span>
+      ),
+    },
+    {
+      key: 'aplicacion',
+      label: 'Nota aplicada',
+      render: (f: FacturaRow) => (
+        <div>
+          {f.ultima_nota_aplicada ? (
+            <>
+              <p className="font-medium text-foreground">{f.ultima_nota_aplicada}</p>
+              <p className="text-xs text-muted-foreground">
+                Ultima: {formatCurrency(Math.abs(f.monto_ultima_aplicacion || 0))}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Total: {formatCurrency(Math.abs(f.monto_total_aplicado || 0))}
+              </p>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">Sin aplicación</span>
+          )}
+        </div>
       ),
     },
     {
