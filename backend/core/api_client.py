@@ -14,8 +14,11 @@ class SiesaAPIClient:
     BASE_URL = "https://siesaprod.cipa.com.co/produccion/v3/ejecutarconsulta"
     
     def __init__(self, conni_key: str, conni_token: str):
+        self.conni_key = conni_key
+        self.conni_token = conni_token
         self.headers = {
             "Connikey": conni_key,
+            "conniKey": conni_key,
             "conniToken": conni_token,
             "Content-Type": "application/json"
         }
@@ -43,13 +46,15 @@ class SiesaAPIClient:
         params = {
             "idCompania": "37",
             "descripcion": "Api_Consulta_Fac_Correagro",
-            "parametros": f"FECHA_INI='{fecha_ini_str}'|FECHA_FIN='{fecha_fin_str}'"
+            "parametros": f"FECHA_INI='{fecha_ini_str}'|FECHA_FIN='{fecha_fin_str}'",
+            "conniKey": self.conni_key,
+            "conniToken": self.conni_token
         }
 
         try:
             logger.info(f"Consultando facturas para la fecha: {fecha_ini_str} a {fecha_fin_str}")
             logger.info(f"URL: {self.base_url}")
-            logger.info(f"Parámetros: {params}")
+            logger.info(f"Parámetros: {self._safe_params(params)}")
 
             response = self._request(self.method, self.base_url, params)
 
@@ -69,7 +74,7 @@ class SiesaAPIClient:
                             break
 
             # Log de la URL completa generada
-            logger.info(f"URL completa: {response.url}")
+            logger.info(f"URL completa: {self._safe_url(response.url)}")
 
             # Intentar obtener el cuerpo de la respuesta antes de raise_for_status
             if response.status_code in (400, 404, 405):
@@ -77,6 +82,24 @@ class SiesaAPIClient:
                 try:
                     error_data = response.json()
                     logger.error(f"JSON Error: {json.dumps(error_data, indent=2)}")
+                    error_fields = set((error_data.get('errors') or {}).keys()) if isinstance(error_data, dict) else set()
+                    if response.status_code == 400 and {'conniKey', 'conniToken'}.intersection(error_fields):
+                        fallback_params = dict(params)
+                        fallback_params.pop('conniKey', None)
+                        fallback_params.pop('conniToken', None)
+                        logger.warning("Reintentando con credenciales solo en headers")
+                        response = self._request(self.method, self.base_url, fallback_params)
+                        response.raise_for_status()
+                        data = response.json()
+                        if isinstance(data, list):
+                            return data
+                        if isinstance(data, dict) and isinstance(data.get('detalle'), dict):
+                            detalle = data['detalle']
+                            if isinstance(detalle.get('Table'), list):
+                                return detalle['Table']
+                            if isinstance(detalle.get('table'), list):
+                                return detalle['table']
+                        return []
                     if response.status_code == 404 and error_data.get('codigo') == 1:
                         logger.warning("Consulta sin datos. Continuando sin facturas.")
                         return []
@@ -171,3 +194,14 @@ class SiesaAPIClient:
             headers=self.headers,
             timeout=30
         )
+
+    def _safe_params(self, params: Dict):
+        redacted = dict(params)
+        if 'conniKey' in redacted:
+            redacted['conniKey'] = '***'
+        if 'conniToken' in redacted:
+            redacted['conniToken'] = '***'
+        return redacted
+
+    def _safe_url(self, url: str):
+        return str(url).replace(self.conni_key, '***').replace(self.conni_token, '***')
