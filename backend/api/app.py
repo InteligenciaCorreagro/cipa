@@ -69,20 +69,7 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=ACCESS_TOKEN_HOURS)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=REFRESH_TOKEN_DAYS)
 
 jwt = JWTManager(app)
-
-cors_origins_env = os.getenv('CORS_ORIGINS', '').strip()
-if cors_origins_env:
-    cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-else:
-    cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-
-CORS(
-    app,
-    resources={r"/api/*": {"origins": cors_origins}},
-    supports_credentials=False,
-    allow_headers=["Content-Type", "Authorization"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Rate Limiter
 try:
@@ -2463,12 +2450,11 @@ def internal_error(error):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', os.getenv('API_PORT', 2500)))
-    debug_enabled = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+    port = int(os.getenv('API_PORT', 2500))
     logger.info(f"Iniciando API en puerto {port}")
     engine = get_engine()
     if engine == 'mysql':
         logger.info("Base de datos: MySQL")
     else:
         logger.info(f"Base de datos: {DB_PATH}")
-    app.run(host='0.0.0.0', port=port, debug=debug_enabled)
+    app.run(host='0.0.0.0', port=port, debug=True)
