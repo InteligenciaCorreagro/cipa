@@ -35,6 +35,9 @@ interface NotaCredito {
   cantidad_pendiente: number
   estado: 'PENDIENTE' | 'APLICADA' | 'NO_APLICADA'
   es_agente?: number
+  factura_aplicada?: string | null
+  monto_aplicado?: number
+  tipo_aplicacion?: 'COMPLETA' | 'PARCIAL'
 }
 
 interface NotaNoAplicada {
@@ -223,6 +226,27 @@ export default function NotasPage() {
         <Badge variant={nota.es_agente ? 'info' : 'default'}>
           {nota.es_agente ? 'Agente' : 'No'}
         </Badge>
+      ),
+    },
+    {
+      key: 'aplicacion_factura',
+      label: 'Aplicación',
+      render: (nota: NotaCredito) => (
+        <div>
+          {nota.factura_aplicada ? (
+            <>
+              <p className="font-medium text-foreground">{nota.factura_aplicada}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatCurrency(Math.abs(nota.monto_aplicado || 0))}
+              </p>
+              <Badge variant={nota.tipo_aplicacion === 'COMPLETA' ? 'success' : 'warning'}>
+                {nota.tipo_aplicacion === 'COMPLETA' ? 'Completa' : 'Parcial'}
+              </Badge>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">Sin factura aplicada</span>
+          )}
+        </div>
       ),
     },
     {

@@ -46,10 +46,24 @@ interface Transaccion {
   fecha_aplicacion: string
 }
 
+interface TransadoMensualItem {
+  periodo: string
+  valor_total: number
+  total_facturas: number
+}
+
+interface NotasAplicadasMensualItem {
+  periodo: string
+  valor_aplicado: number
+  total_aplicaciones: number
+}
+
 export default function DashboardPage() {
   const [estadisticas, setEstadisticas] = useState<Estadisticas | null>(null)
   const [estadisticasFacturas, setEstadisticasFacturas] = useState<EstadisticasFacturas | null>(null)
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
+  const [transadoMensual, setTransadoMensual] = useState<TransadoMensualItem[]>([])
+  const [notasAplicadasMensual, setNotasAplicadasMensual] = useState<NotasAplicadasMensualItem[]>([])
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -59,10 +73,12 @@ export default function DashboardPage() {
       setLoading(true)
       setError(null)
 
-      const [statsRes, facturasRes, transaccionesRes] = await Promise.allSettled([
+      const [statsRes, facturasRes, transaccionesRes, transadoMensualRes, notasAplicadasMensualRes] = await Promise.allSettled([
         api.get('/api/notas/estadisticas'),
         api.get('/api/facturas/estadisticas'),
-        api.get('/api/facturas/transacciones', { params: { limite: 1200, offset: 0 } })
+        api.get('/api/facturas/transacciones', { params: { limite: 1200, offset: 0 } }),
+        api.get('/api/facturas/transado-mensual', { params: { limite: 12 } }),
+        api.get('/api/notas/aplicado-mensual', { params: { limite: 12 } })
       ])
 
       if (statsRes.status === 'fulfilled') {
@@ -76,6 +92,16 @@ export default function DashboardPage() {
       if (transaccionesRes.status === 'fulfilled') {
         const data = transaccionesRes.value.data
         setTransacciones(data.items || data.ultimas_aplicaciones || [])
+      }
+
+      if (transadoMensualRes.status === 'fulfilled') {
+        const data = transadoMensualRes.value.data
+        setTransadoMensual(data.items || [])
+      }
+
+      if (notasAplicadasMensualRes.status === 'fulfilled') {
+        const data = notasAplicadasMensualRes.value.data
+        setNotasAplicadasMensual(data.items || [])
       }
 
       setLoading(false)
@@ -92,27 +118,54 @@ export default function DashboardPage() {
   }, [])
 
   const transadoPorMes = useMemo(() => {
-    const map = new Map<string, { mes: string; valor: number }>()
-    for (const item of transacciones) {
-      if (!item.fecha_aplicacion) continue
-      const date = new Date(item.fecha_aplicacion)
+    const map = new Map<string, { mes: string; valorFacturas: number; valorNotas: number }>()
+
+    for (const item of transadoMensual) {
+      if (!item.periodo) continue
+      const date = new Date(`${item.periodo}-01T00:00:00`)
       if (Number.isNaN(date.getTime())) continue
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       const mes = new Intl.DateTimeFormat('es-CO', { month: 'short', year: '2-digit' }).format(date)
-      const acumulado = map.get(key)?.valor || 0
-      map.set(key, { mes, valor: acumulado + Number(item.valor_aplicado || 0) })
+      const actual = map.get(item.periodo) || { mes, valorFacturas: 0, valorNotas: 0 }
+      actual.valorFacturas = Math.abs(Number(item.valor_total || 0))
+      map.set(item.periodo, actual)
     }
+
+    for (const item of notasAplicadasMensual) {
+      if (!item.periodo) continue
+      const date = new Date(`${item.periodo}-01T00:00:00`)
+      if (Number.isNaN(date.getTime())) continue
+      const mes = new Intl.DateTimeFormat('es-CO', { month: 'short', year: '2-digit' }).format(date)
+      const actual = map.get(item.periodo) || { mes, valorFacturas: 0, valorNotas: 0 }
+      actual.valorNotas = Math.abs(Number(item.valor_aplicado || 0))
+      map.set(item.periodo, actual)
+    }
+
     return [...map.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([, value]) => value)
       .slice(-12)
-  }, [transacciones])
+  }, [transadoMensual, notasAplicadasMensual])
 
   const notasPorEstado = useMemo(() => {
+    const notasPendientes = Number(
+      estadisticas?.notas_pendientes
+      ?? (estadisticas as Record<string, unknown> | null)?.notas_pendiente
+      ?? 0
+    )
+    const notasAplicadas = Number(
+      estadisticas?.notas_aplicadas
+      ?? (estadisticas as Record<string, unknown> | null)?.notas_aplicada
+      ?? 0
+    )
+    const notasNoAplicadas = Number(
+      estadisticas?.notas_no_aplicadas
+      ?? (estadisticas as Record<string, unknown> | null)?.notas_no_aplicada
+      ?? 0
+    )
     return [
-      { estado: 'Pendientes', cantidad: Number(estadisticas?.notas_pendientes || 0) },
-      { estado: 'Aplicadas', cantidad: Number(estadisticas?.notas_aplicadas || 0) },
-      { estado: 'No aplicadas', cantidad: Number(estadisticas?.notas_no_aplicadas || 0) }
+      { estado: 'Pendientes', cantidad: notasPendientes },
+      { estado: 'Aplicadas', cantidad: notasAplicadas },
+      { estado: 'No aplicadas', cantidad: notasNoAplicadas }
     ]
   }, [estadisticas])
 
@@ -189,8 +242,8 @@ export default function DashboardPage() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="border border-border">
           <CardHeader>
-            <CardTitle className="text-base font-semibold text-foreground">Transado Mes a Mes</CardTitle>
-            <CardDescription>Valor aplicado por mes (ultimos 12 meses)</CardDescription>
+            <CardTitle className="text-base font-semibold text-foreground">Transado Mensual</CardTitle>
+            <CardDescription>Facturas correctas vs notas aplicadas por mes en COP</CardDescription>
           </CardHeader>
           <CardContent>
             {transadoPorMes.length > 0 ? (
@@ -200,7 +253,8 @@ export default function DashboardPage() {
                   <XAxis dataKey="mes" stroke="hsl(160 6% 46%)" fontSize={12} tickLine={false} axisLine={false} />
                   <YAxis stroke="hsl(160 6% 46%)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `${Math.round(value / 1000000)}M`} />
                   <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ border: '1px solid hsl(150 10% 90%)', borderRadius: '10px', fontSize: '13px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)' }} />
-                  <Bar dataKey="valor" fill="hsl(152 60% 32%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="valorFacturas" name="Facturas correctas" fill="hsl(152 60% 32%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="valorNotas" name="Notas aplicadas" fill="hsl(30 85% 52%)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

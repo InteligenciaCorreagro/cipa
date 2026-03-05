@@ -34,7 +34,7 @@ export function Table<T>({
   loading = false,
   hoverable = true,
   striped = false,
-  compact = false,
+  compact = true,
   bordered = true,
   enablePagination = true,
   pageSize = 10
@@ -103,7 +103,7 @@ export function Table<T>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className="w-full table-fixed">
         <thead>
           <tr className={cn(
             'bg-muted/50',
@@ -113,8 +113,8 @@ export function Table<T>({
               <th
                 key={String(column.key)}
                 className={cn(
-                  'text-xs font-medium text-muted-foreground uppercase tracking-wider',
-                  compact ? 'py-2.5 px-3' : 'py-2.5 px-4',
+                  'text-[11px] font-medium text-muted-foreground uppercase tracking-wide',
+                  compact ? 'py-2 px-2.5' : 'py-2.5 px-4',
                   column.align === 'center' && 'text-center',
                   column.align === 'right' && 'text-right',
                   column.align !== 'center' && column.align !== 'right' && 'text-left',
@@ -122,8 +122,8 @@ export function Table<T>({
                 )}
                 style={{ width: column.width }}
               >
-                <div className="flex items-center gap-2 justify-between">
-                  <span>{column.label}</span>
+                <div className="flex items-center gap-2 justify-between min-w-0">
+                  <span className="truncate">{column.label}</span>
                   {column.sortable && (
                     <svg
                       className="w-4 h-4 text-muted-foreground/50"
@@ -160,25 +160,29 @@ export function Table<T>({
                 <td
                   key={String(column.key)}
                   className={cn(
-                    'text-foreground',
-                    compact ? 'py-2 px-3' : 'py-2.5 px-4',
+                    'text-foreground text-sm max-w-[220px] align-top',
+                    compact ? 'py-1.5 px-2.5' : 'py-2.5 px-4',
                     column.align === 'center' && 'text-center',
                     column.align === 'right' && 'text-right'
                   )}
                 >
-                  {column.render 
-                    ? column.render(row)
-                    : (() => {
-                        const value = (row as Record<string, unknown>)[column.key as string]
-                        if (typeof value === 'string' || typeof value === 'number') {
-                          return value
-                        }
-                        if (value === null || value === undefined) {
-                          return ''
-                        }
-                        return String(value)
-                      })()
-                  }
+                  <div className="min-w-0 overflow-hidden">
+                    {column.render
+                      ? column.render(row)
+                      : (() => {
+                          const value = (row as Record<string, unknown>)[column.key as string]
+                          if (typeof value === 'string' || typeof value === 'number') {
+                            const text = String(value)
+                            return <span className="block truncate" title={text}>{text}</span>
+                          }
+                          if (value === null || value === undefined) {
+                            return ''
+                          }
+                          const text = String(value)
+                          return <span className="block truncate" title={text}>{text}</span>
+                        })()
+                    }
+                  </div>
                 </td>
               ))}
             </tr>
