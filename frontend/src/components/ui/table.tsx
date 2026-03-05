@@ -37,7 +37,7 @@ export function Table<T>({
   compact = false,
   bordered = true,
   enablePagination = true,
-  pageSize = 25
+  pageSize = 10
 }: TableProps<T>) {
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -114,7 +114,7 @@ export function Table<T>({
                 key={String(column.key)}
                 className={cn(
                   'text-xs font-medium text-muted-foreground uppercase tracking-wider',
-                  compact ? 'py-3 px-4' : 'py-3 px-6',
+                  compact ? 'py-2.5 px-3' : 'py-2.5 px-4',
                   column.align === 'center' && 'text-center',
                   column.align === 'right' && 'text-right',
                   column.align !== 'center' && column.align !== 'right' && 'text-left',
@@ -161,7 +161,7 @@ export function Table<T>({
                   key={String(column.key)}
                   className={cn(
                     'text-foreground',
-                    compact ? 'py-3 px-4' : 'py-3.5 px-6',
+                    compact ? 'py-2 px-3' : 'py-2.5 px-4',
                     column.align === 'center' && 'text-center',
                     column.align === 'right' && 'text-right'
                   )}

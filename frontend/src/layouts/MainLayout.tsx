@@ -27,14 +27,10 @@ export default function MainLayout() {
         <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-3 group">
             <img
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-jwwFqToCBnvzQxjVAgBLw7p8FyUsD3.png"
-              alt="Correagro Logo"
-              className="h-8 w-auto"
+              src="/images/logo-cipa.png"
+              alt="CIPA Logo"
+              className="h-9 w-auto"
             />
-            <div className="hidden sm:block h-5 w-px bg-border" />
-            <span className="hidden sm:block text-xs font-medium tracking-widest uppercase text-muted-foreground">
-              CIPA
-            </span>
           </Link>
           <nav className="order-3 w-full overflow-x-auto md:order-2 md:w-auto">
             <div className="flex w-max items-center gap-0.5 p-0.5">

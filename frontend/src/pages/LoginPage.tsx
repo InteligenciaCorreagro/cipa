@@ -61,11 +61,10 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-10">
           <img
-            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-jwwFqToCBnvzQxjVAgBLw7p8FyUsD3.png"
-            alt="Correagro Logo"
-            className="h-10 w-auto mx-auto mb-4"
+            src="/images/logo-cipa.png"
+            alt="CIPA Logo"
+            className="h-16 w-auto mx-auto mb-4"
           />
-          <div className="h-px w-12 bg-primary mx-auto mb-4" />
           <p className="text-muted-foreground text-sm tracking-wide">
             Sistema de Gestion de Notas de Credito
           </p>
