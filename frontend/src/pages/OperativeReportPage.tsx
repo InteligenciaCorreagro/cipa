@@ -350,50 +350,44 @@ export default function OperativeReportPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header con gradiente */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 border-2 border-blue-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
-              <FileText className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-                Reporte Operativo Diario
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Resumen consolidado de operaciones
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => navigate('/')}
-            className="gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Dashboard
-          </Button>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Reporte Operativo Diario
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Resumen consolidado de operaciones
+          </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate('/')}
+          className="gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Dashboard
+        </Button>
       </div>
 
       {/* Selector de Fecha */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-blue-600" />
+            <Calendar className="w-4 h-4 text-primary" />
             <div>
-              <CardTitle className="text-lg">Seleccionar Fecha</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Seleccionar Fecha</CardTitle>
               <CardDescription className="mt-1">
-                Consulte el reporte operativo de un día específico
+                Consulte el reporte operativo de un dia especifico
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent>
           <div className="flex gap-4 items-end">
             <div className="space-y-2 flex-1 max-w-xs">
-              <Label htmlFor="fecha" className="text-sm font-semibold text-gray-700">
+              <Label htmlFor="fecha" className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Fecha del Reporte
               </Label>
               <Input
@@ -401,13 +395,13 @@ export default function OperativeReportPage() {
                 type="date"
                 value={fecha}
                 onChange={handleDateChange}
-                className="h-11 border-2 focus:border-blue-500"
+                className="h-10"
               />
             </div>
             <Button 
               onClick={loadReport} 
               disabled={loading}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg h-11"
+              size="sm"
             >
               {loading ? (
                 <>
@@ -424,8 +418,8 @@ export default function OperativeReportPage() {
           </div>
 
           {error && (
-            <div className="mt-4 flex items-center gap-3 text-sm text-red-700 bg-red-50 p-4 rounded-lg border-2 border-red-200">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <div className="mt-4 flex items-center gap-3 text-sm text-destructive bg-destructive/5 p-4 rounded-lg border border-destructive/20">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
             </div>
           )}
@@ -435,78 +429,86 @@ export default function OperativeReportPage() {
       {/* Resumen */}
       {data && (
         <>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card className="border-2 border-emerald-200 shadow-md hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
-                    <FileText className="w-6 h-6 text-emerald-600" />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card className="border border-border">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Notas del Dia</p>
+                    <p className="text-2xl font-semibold text-foreground mt-2">{data.resumen.total_notas}</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-primary/8 flex items-center justify-center">
+                    <FileText className="w-4 h-4 text-primary" />
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Notas del Día</p>
-                <p className="text-4xl font-bold text-gray-900">{data.resumen.total_notas}</p>
               </CardContent>
             </Card>
 
-            <Card className="border-2 border-blue-200 shadow-md hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6 text-blue-600" />
+            <Card className="border border-border">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Aplicaciones</p>
+                    <p className="text-2xl font-semibold text-foreground mt-2">{data.resumen.total_aplicaciones}</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-primary/8 flex items-center justify-center">
+                    <CheckCircle className="w-4 h-4 text-primary" />
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Aplicaciones</p>
-                <p className="text-4xl font-bold text-gray-900">{data.resumen.total_aplicaciones}</p>
               </CardContent>
             </Card>
 
-            <Card className="border-2 border-red-200 shadow-md hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center">
-                    <XCircle className="w-6 h-6 text-red-600" />
+            <Card className="border border-border">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Rechazadas</p>
+                    <p className="text-2xl font-semibold text-foreground mt-2">{data.resumen.total_rechazadas}</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-destructive/8 flex items-center justify-center">
+                    <XCircle className="w-4 h-4 text-destructive" />
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Rechazadas</p>
-                <p className="text-4xl font-bold text-gray-900">{data.resumen.total_rechazadas}</p>
               </CardContent>
             </Card>
 
-            <Card className="border-2 border-orange-200 shadow-md hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center">
-                    <DollarSign className="w-6 h-6 text-orange-600" />
+            <Card className="border border-border">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Saldo Pendiente</p>
+                    <p className="text-xl font-semibold text-foreground mt-2">{formatCurrency(data.resumen.resumen_notas.saldo_pendiente)}</p>
+                  </div>
+                  <div className="h-9 w-9 rounded-lg bg-primary/8 flex items-center justify-center">
+                    <DollarSign className="w-4 h-4 text-primary" />
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Saldo Pendiente</p>
-                <p className="text-2xl font-bold text-gray-900">{formatCurrency(data.resumen.resumen_notas.saldo_pendiente)}</p>
               </CardContent>
             </Card>
           </div>
 
           {/* Tabs con Datos */}
-          <Card className="border-0 shadow-lg">
+          <Card className="border border-border">
             <CardContent className="pt-6">
               <Tabs defaultValue="notas">
-                <TabsList className="grid w-full grid-cols-3 bg-gray-100 p-1">
+                <TabsList className="grid w-full grid-cols-3 bg-muted p-1">
                   <TabsTrigger 
                     value="notas"
-                    className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                    className="data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
                   >
                     <FileText className="w-4 h-4 mr-2" />
                     Notas ({data.notas_credito.length})
                   </TabsTrigger>
                   <TabsTrigger 
                     value="aplicaciones"
-                    className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                    className="data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
                     Aplicaciones ({data.aplicaciones.length})
                   </TabsTrigger>
                   <TabsTrigger 
                     value="rechazadas"
-                    className="data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                    className="data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
                   >
                     <XCircle className="w-4 h-4 mr-2" />
                     Rechazadas ({data.facturas_rechazadas.length})
@@ -517,13 +519,13 @@ export default function OperativeReportPage() {
                 <TabsContent value="notas" className="mt-6">
                   {data.notas_credito.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 space-y-3">
-                      <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                        <FileText className="w-8 h-8 text-gray-400" />
+                      <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                        <FileText className="w-6 h-6 text-muted-foreground" />
                       </div>
                       <div className="text-center">
-                        <p className="text-gray-900 font-medium">Sin notas de crédito</p>
-                        <p className="text-sm text-gray-500 mt-1">
-                          No hay notas de crédito para esta fecha
+                        <p className="text-foreground font-medium text-sm">Sin notas de credito</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          No hay notas de credito para esta fecha
                         </p>
                       </div>
                     </div>
@@ -542,12 +544,12 @@ export default function OperativeReportPage() {
                 <TabsContent value="aplicaciones" className="mt-6">
                   {data.aplicaciones.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 space-y-3">
-                      <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                        <CheckCircle className="w-8 h-8 text-gray-400" />
+                      <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-muted-foreground" />
                       </div>
                       <div className="text-center">
-                        <p className="text-gray-900 font-medium">Sin aplicaciones</p>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-foreground font-medium text-sm">Sin aplicaciones</p>
+                        <p className="text-xs text-muted-foreground mt-1">
                           No hay aplicaciones para esta fecha
                         </p>
                       </div>

@@ -146,12 +146,12 @@ export default function FacturasPage() {
       label: 'Factura',
       render: (f: FacturaRow) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-emerald-700" />
+          <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <p className="font-semibold text-emerald-900">{f.numero_factura}</p>
-            <p className="text-xs text-emerald-600">{formatDate(f.fecha_factura)}</p>
+            <p className="font-medium text-foreground">{f.numero_factura}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(f.fecha_factura)}</p>
           </div>
         </div>
       ),
@@ -161,8 +161,8 @@ export default function FacturasPage() {
       label: 'Cliente',
       render: (f: FacturaRow) => (
         <div>
-          <p className="font-medium text-emerald-900">{f.nombre_cliente}</p>
-          <p className="text-xs text-emerald-600 font-mono">{f.nit_cliente}</p>
+          <p className="font-medium text-foreground">{f.nombre_cliente}</p>
+          <p className="text-xs text-muted-foreground font-mono">{f.nit_cliente}</p>
         </div>
       ),
     },
@@ -171,8 +171,8 @@ export default function FacturasPage() {
       label: 'Producto',
       render: (f: FacturaRow) => (
         <div>
-          <p className="font-medium text-emerald-900">{f.nombre_producto}</p>
-          <p className="text-xs text-emerald-600 font-mono">{f.codigo_producto}</p>
+          <p className="font-medium text-foreground">{f.nombre_producto}</p>
+          <p className="text-xs text-muted-foreground font-mono">{f.codigo_producto}</p>
         </div>
       ),
     },
@@ -181,7 +181,7 @@ export default function FacturasPage() {
       label: 'Valor',
       align: 'right' as const,
       render: (f: FacturaRow) => (
-        <span className="font-semibold text-emerald-900">{formatCurrency(f.valor_total)}</span>
+        <span className="font-medium text-foreground">{formatCurrency(f.valor_total)}</span>
       ),
     },
     {
@@ -200,47 +200,47 @@ export default function FacturasPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-emerald-900">Facturas</h1>
-          <p className="text-emerald-700 mt-1">Vista operativa de facturas y estado de aplicación</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Facturas</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Vista operativa de facturas y estado de aplicacion</p>
         </div>
-        <Button onClick={fetchFacturas} variant="outline" size="sm" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
-          <RefreshCw className="h-4 w-4" />
+        <Button onClick={fetchFacturas} variant="outline" size="sm" className="gap-2">
+          <RefreshCw className="h-3.5 w-3.5" />
           Actualizar
         </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {resumen.map((item) => (
-          <Card key={item.label} className="border border-emerald-100 shadow-sm">
+          <Card key={item.label} className="border border-border">
             <CardContent className="p-5">
-              <p className="text-sm text-emerald-700">{item.label}</p>
-              <p className="text-2xl font-bold text-emerald-900 mt-1">{item.value}</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{item.label}</p>
+              <p className="text-xl font-semibold text-foreground mt-2">{item.value}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
       {error && (
-        <Card className="border border-emerald-200 bg-emerald-50/50">
-          <CardContent className="flex items-center gap-3 p-4 text-emerald-800">
+        <Card className="border border-destructive/20 bg-destructive/5">
+          <CardContent className="flex items-center gap-3 p-4 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>{error}</span>
+            <span className="text-sm">{error}</span>
           </CardContent>
         </Card>
       )}
 
-      <Card className="border border-emerald-100 shadow-sm">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle className="text-emerald-900">Filtros</CardTitle>
-          <CardDescription className="text-emerald-700">Fecha, estado, cliente y orden</CardDescription>
+          <CardTitle className="text-base font-semibold text-foreground">Filtros</CardTitle>
+          <CardDescription>Fecha, estado, cliente y orden</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Input className="border-emerald-200" placeholder="Número factura" value={filters.numero_factura} onChange={(e) => setFilters({ ...filters, numero_factura: e.target.value })} />
-          <Input className="border-emerald-200" placeholder="Nombre cliente" value={filters.nombre_cliente} onChange={(e) => setFilters({ ...filters, nombre_cliente: e.target.value })} />
-          <Input className="border-emerald-200" type="date" value={filters.fecha_desde} onChange={(e) => setFilters({ ...filters, fecha_desde: e.target.value })} />
-          <Input className="border-emerald-200" type="date" value={filters.fecha_hasta} onChange={(e) => setFilters({ ...filters, fecha_hasta: e.target.value })} />
+          <Input placeholder="Numero factura" value={filters.numero_factura} onChange={(e) => setFilters({ ...filters, numero_factura: e.target.value })} />
+          <Input placeholder="Nombre cliente" value={filters.nombre_cliente} onChange={(e) => setFilters({ ...filters, nombre_cliente: e.target.value })} />
+          <Input type="date" value={filters.fecha_desde} onChange={(e) => setFilters({ ...filters, fecha_desde: e.target.value })} />
+          <Input type="date" value={filters.fecha_hasta} onChange={(e) => setFilters({ ...filters, fecha_hasta: e.target.value })} />
           <Select value={filters.estado || 'ALL'} onValueChange={(value) => setFilters({ ...filters, estado: value === 'ALL' ? '' : value })}>
-            <SelectTrigger className="border-emerald-200">
+            <SelectTrigger>
               <SelectValue placeholder="Estado" />
             </SelectTrigger>
             <SelectContent>
@@ -250,17 +250,17 @@ export default function FacturasPage() {
             </SelectContent>
           </Select>
           <Select value={filters.registrable || 'ALL'} onValueChange={(value) => setFilters({ ...filters, registrable: value === 'ALL' ? '' : value })}>
-            <SelectTrigger className="border-emerald-200">
+            <SelectTrigger>
               <SelectValue placeholder="Registrable" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Todos</SelectItem>
-              <SelectItem value="true">Sí</SelectItem>
+              <SelectItem value="true">Si</SelectItem>
               <SelectItem value="false">No</SelectItem>
             </SelectContent>
           </Select>
           <Select value={filters.con_nota || 'ALL'} onValueChange={(value) => setFilters({ ...filters, con_nota: value === 'ALL' ? '' : value })}>
-            <SelectTrigger className="border-emerald-200">
+            <SelectTrigger>
               <SelectValue placeholder="Con nota" />
             </SelectTrigger>
             <SelectContent>
@@ -270,21 +270,21 @@ export default function FacturasPage() {
             </SelectContent>
           </Select>
           <Select value={filters.orden} onValueChange={(value) => setFilters({ ...filters, orden: value })}>
-            <SelectTrigger className="border-emerald-200">
+            <SelectTrigger>
               <SelectValue placeholder="Orden" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="fecha_factura">Fecha</SelectItem>
-              <SelectItem value="numero_factura">Número</SelectItem>
+              <SelectItem value="numero_factura">Numero</SelectItem>
               <SelectItem value="valor_total">Valor</SelectItem>
               <SelectItem value="nombre_cliente">Cliente</SelectItem>
               <SelectItem value="nit_cliente">NIT</SelectItem>
-              <SelectItem value="codigo_factura">Código</SelectItem>
+              <SelectItem value="codigo_factura">Codigo</SelectItem>
             </SelectContent>
           </Select>
           <Select value={filters.direccion} onValueChange={(value) => setFilters({ ...filters, direccion: value })}>
-            <SelectTrigger className="border-emerald-200">
-              <SelectValue placeholder="Dirección" />
+            <SelectTrigger>
+              <SelectValue placeholder="Direccion" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="DESC">Descendente</SelectItem>
@@ -292,23 +292,22 @@ export default function FacturasPage() {
             </SelectContent>
           </Select>
           <Input
-            className="border-emerald-200"
-            placeholder="Búsqueda global"
+            placeholder="Busqueda global"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <Button onClick={fetchFacturas} variant="outline" className="md:col-span-4 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+          <Button onClick={fetchFacturas} variant="outline" className="md:col-span-4">
             Aplicar filtros
           </Button>
         </CardContent>
       </Card>
 
-      <Card className="border border-emerald-100 shadow-sm">
+      <Card className="border border-border">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-emerald-900">Listado de Facturas</CardTitle>
-              <CardDescription className="text-emerald-700">{total} registros</CardDescription>
+              <CardTitle className="text-base font-semibold text-foreground">Listado de Facturas</CardTitle>
+              <CardDescription>{total} registros</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -324,12 +323,12 @@ export default function FacturasPage() {
             enablePagination={false}
             onRowClick={(row) => setSelected(row)}
           />
-          <div className="flex items-center justify-between p-4">
-            <div className="text-sm text-emerald-700">
-              Página {page + 1} de {totalPages || 1}
+          <div className="flex items-center justify-between p-4 border-t border-border">
+            <div className="text-sm text-muted-foreground">
+              Pagina {page + 1} de {totalPages || 1}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>
+              <Button variant="outline" size="sm" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>
                 Anterior
               </Button>
               {pageNumbers.map((pageNumber) => (
@@ -337,13 +336,12 @@ export default function FacturasPage() {
                   key={pageNumber}
                   variant={pageNumber === page + 1 ? 'default' : 'outline'}
                   size="sm"
-                  className={pageNumber === page + 1 ? '' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}
                   onClick={() => setPage(pageNumber - 1)}
                 >
                   {pageNumber}
                 </Button>
               ))}
-              <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page + 1 >= totalPages}>
+              <Button variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page + 1 >= totalPages}>
                 Siguiente
               </Button>
             </div>
@@ -359,52 +357,52 @@ export default function FacturasPage() {
         {selected ? (
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <p className="text-xs text-emerald-600">Número factura</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.numero_factura}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Numero factura</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.numero_factura}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Fecha</p>
-              <p className="text-sm font-semibold text-emerald-900">{formatDate(selected.fecha_factura)}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Fecha</p>
+              <p className="text-sm font-medium text-foreground mt-1">{formatDate(selected.fecha_factura)}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Cliente</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.nombre_cliente}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Cliente</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.nombre_cliente}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">NIT</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.nit_cliente}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">NIT</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.nit_cliente}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Producto</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.nombre_producto}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Producto</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.nombre_producto}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Código producto</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.codigo_producto}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Codigo producto</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.codigo_producto}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Cantidad original</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.cantidad_original.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Cantidad original</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.cantidad_original.toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Cantidad restante</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.cantidad_restante.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Cantidad restante</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.cantidad_restante.toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Valor total</p>
-              <p className="text-sm font-semibold text-emerald-900">{formatCurrency(selected.valor_total)}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor total</p>
+              <p className="text-sm font-medium text-foreground mt-1">{formatCurrency(selected.valor_total)}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Valor restante</p>
-              <p className="text-sm font-semibold text-emerald-900">{formatCurrency(selected.valor_restante)}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor restante</p>
+              <p className="text-sm font-medium text-foreground mt-1">{formatCurrency(selected.valor_restante)}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Código factura</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.codigo_factura}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Codigo factura</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.codigo_factura}</p>
             </div>
             <div>
-              <p className="text-xs text-emerald-600">Registrable</p>
-              <p className="text-sm font-semibold text-emerald-900">{selected.registrable ? 'Sí' : 'No'}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Registrable</p>
+              <p className="text-sm font-medium text-foreground mt-1">{selected.registrable ? 'Si' : 'No'}</p>
             </div>
           </div>
         ) : null}
