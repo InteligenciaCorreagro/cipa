@@ -75,28 +75,28 @@ function Calendar({ selected, onSelect, disabled, className }: CalendarProps) {
   }
 
   return (
-    <div className={cn("p-4 bg-white rounded-xl shadow-xl border border-gray-200", className)}>
+    <div className={cn("p-4 bg-card rounded-xl shadow-lg border border-border", className)}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
         <Button
           variant="ghost"
           size="icon"
           onClick={previousMonth}
-          className="h-8 w-8 hover:bg-emerald-50 hover:text-emerald-600"
+          className="h-8 w-8 hover:bg-accent"
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="flex flex-col items-center">
-          <h3 className="font-bold text-gray-900">
+          <h3 className="font-semibold text-foreground">
             {monthNames[currentMonth.getMonth()]}
           </h3>
-          <p className="text-xs text-gray-500">{currentMonth.getFullYear()}</p>
+          <p className="text-xs text-muted-foreground">{currentMonth.getFullYear()}</p>
         </div>
         <Button
           variant="ghost"
           size="icon"
           onClick={nextMonth}
-          className="h-8 w-8 hover:bg-emerald-50 hover:text-emerald-600"
+          className="h-8 w-8 hover:bg-accent"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -107,7 +107,7 @@ function Calendar({ selected, onSelect, disabled, className }: CalendarProps) {
         {dayNames.map((day) => (
           <div
             key={day}
-            className="text-center text-xs font-semibold text-gray-500 py-2"
+            className="text-center text-xs font-medium text-muted-foreground py-2"
           >
             {day}
           </div>
@@ -135,11 +135,11 @@ function Calendar({ selected, onSelect, disabled, className }: CalendarProps) {
               disabled={disabled}
               className={cn(
                 "h-10 w-10 rounded-lg text-sm font-medium transition-all duration-200",
-                "hover:bg-emerald-50 hover:text-emerald-600 hover:scale-105",
-                "focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2",
-                selected && "bg-gradient-to-br from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 shadow-lg shadow-emerald-600/30",
-                today && !selected && "border-2 border-emerald-500 text-emerald-600 font-bold",
-                disabled && "opacity-40 cursor-not-allowed hover:bg-transparent hover:scale-100"
+                "hover:bg-accent hover:text-foreground",
+                "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                selected && "bg-primary text-primary-foreground hover:bg-primary/90",
+                today && !selected && "border-2 border-primary text-primary font-bold",
+                disabled && "opacity-40 cursor-not-allowed hover:bg-transparent"
               )}
             >
               {day}
@@ -188,14 +188,14 @@ export function DatePicker({
         variant="outline"
         onClick={() => setOpen(!open)}
         className={cn(
-          "w-full justify-start text-left font-normal h-12 border-2 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all",
-          !date && "text-gray-500",
+          "w-full justify-start text-left font-normal h-11 border hover:border-primary/50 transition-all",
+          !date && "text-muted-foreground",
           className
         )}
       >
-        <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
+        <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
         {date ? (
-          <span className="text-gray-900 font-medium">{formatDate(date)}</span>
+          <span className="text-foreground font-medium">{formatDate(date)}</span>
         ) : (
           <span>{placeholder}</span>
         )}
@@ -206,7 +206,7 @@ export function DatePicker({
         <>
           {/* Overlay oscuro */}
           <div 
-            className="fixed inset-0 bg-black/20 z-40 animate-in fade-in duration-200"
+            className="fixed inset-0 bg-foreground/10 z-40 animate-in fade-in duration-200"
             onClick={() => setOpen(false)}
           />
           
@@ -215,7 +215,7 @@ export function DatePicker({
             <div className="relative">
               <button
                 onClick={() => setOpen(false)}
-                className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg z-10"
+                className="absolute -top-2 -right-2 w-8 h-8 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center hover:bg-destructive/90 transition-colors shadow-lg z-10"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -285,13 +285,13 @@ export function DateRangePicker({
         variant="outline"
         onClick={() => setOpen(!open)}
         className={cn(
-          "w-full justify-start text-left font-normal h-12 border-2 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all",
-          !dateRange?.from && "text-gray-500",
+          "w-full justify-start text-left font-normal h-11 border hover:border-primary/50 transition-all",
+          !dateRange?.from && "text-muted-foreground",
           className
         )}
       >
-        <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
-        <span className={dateRange?.from ? "text-gray-900 font-medium" : ""}>
+        <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+        <span className={dateRange?.from ? "text-foreground font-medium" : ""}>
           {formatDateRange(tempRange)}
         </span>
       </Button>
@@ -300,7 +300,7 @@ export function DateRangePicker({
       {open && (
         <>
           <div 
-            className="fixed inset-0 bg-black/20 z-40 animate-in fade-in duration-200"
+            className="fixed inset-0 bg-foreground/10 z-40 animate-in fade-in duration-200"
             onClick={() => setOpen(false)}
           />
           
@@ -308,7 +308,7 @@ export function DateRangePicker({
             <div className="relative">
               <button
                 onClick={() => setOpen(false)}
-                className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg z-10"
+                className="absolute -top-2 -right-2 w-8 h-8 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center hover:bg-destructive/90 transition-colors shadow-lg z-10"
               >
                 <X className="w-4 h-4" />
               </button>

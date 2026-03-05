@@ -160,12 +160,12 @@ export default function NotasPage() {
       label: 'Número de Nota',
       render: (nota: NotaCredito) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-emerald-600" />
+          <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{nota.numero_nota}</p>
-            <p className="text-xs text-gray-500">
+            <p className="font-medium text-foreground">{nota.numero_nota}</p>
+            <p className="text-xs text-muted-foreground">
               {new Date(nota.fecha_nota).toLocaleDateString('es-CO', {
                 day: '2-digit',
                 month: 'short',
@@ -181,8 +181,8 @@ export default function NotasPage() {
       label: 'Cliente',
       render: (nota: NotaCredito) => (
         <div>
-          <p className="font-medium text-gray-900">{nota.nombre_cliente}</p>
-          <p className="text-xs text-gray-500 font-mono">{nota.nit_cliente}</p>
+          <p className="font-medium text-foreground">{nota.nombre_cliente}</p>
+          <p className="text-xs text-muted-foreground font-mono">{nota.nit_cliente}</p>
         </div>
       ),
     },
@@ -191,8 +191,8 @@ export default function NotasPage() {
       label: 'Producto',
       render: (nota: NotaCredito) => (
         <div>
-          <p className="font-medium text-gray-900">{nota.nombre_producto}</p>
-          <p className="text-xs text-gray-500 font-mono">{nota.codigo_producto}</p>
+          <p className="font-medium text-foreground">{nota.nombre_producto}</p>
+          <p className="text-xs text-muted-foreground font-mono">{nota.codigo_producto}</p>
         </div>
       ),
     },
@@ -201,7 +201,7 @@ export default function NotasPage() {
       label: 'Valor Total',
       align: 'right' as const,
       render: (nota: NotaCredito) => (
-        <span className="font-semibold text-gray-900">
+        <span className="font-medium text-foreground">
           {formatCurrency(Math.abs(nota.valor_total))}
         </span>
       ),
@@ -211,8 +211,8 @@ export default function NotasPage() {
       label: 'Saldo Pendiente',
       align: 'right' as const,
       render: (nota: NotaCredito) => (
-        <span className={`font-bold ${
-          nota.saldo_pendiente > 0 ? 'text-orange-600' : 'text-emerald-600'
+        <span className={`font-medium ${
+          nota.saldo_pendiente > 0 ? 'text-foreground' : 'text-primary'
         }`}>
           {formatCurrency(Math.abs(nota.saldo_pendiente))}
         </span>
@@ -277,18 +277,18 @@ export default function NotasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Notas de Crédito</h1>
-          <p className="text-gray-500 mt-1">
-            Gestiona y consulta las notas de crédito del sistema
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Notas de Credito</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Gestiona y consulta las notas de credito del sistema
           </p>
         </div>
         {canWrite ? (
           <Button
             onClick={() => setShowForm((prev) => !prev)}
-            className="bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-lg shadow-emerald-600/30"
+            size="sm"
           >
             <Plus className="mr-2 h-4 w-4" />
-            {showForm ? 'Ocultar Formularios' : 'Nueva Nota'}
+            {showForm ? 'Ocultar' : 'Nueva Nota'}
           </Button>
         ) : (
           <Badge variant="info">Modo consulta</Badge>
@@ -296,41 +296,39 @@ export default function NotasPage() {
       </div>
 
       {notification && (
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-700">
-          <RefreshCw className="h-4 w-4" />
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-3 text-foreground">
+          <RefreshCw className="h-4 w-4 text-primary" />
           <span className="text-sm">{notification}</span>
         </div>
       )}
 
       {/* Filtros */}
-      <Card className="border-0 shadow-md">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white pb-4">
+      <Card className="border border-border">
+        <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
-            <CardTitle className="text-lg">Filtros de Búsqueda</CardTitle>
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-base font-semibold text-foreground">Filtros de Busqueda</CardTitle>
           </div>
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {/* Búsqueda */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Buscar</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Buscar</label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Número, cliente o NIT..."
+                  placeholder="Numero, cliente o NIT..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-11 border-2 focus:border-emerald-500"
+                  className="pl-10 h-10"
                 />
               </div>
             </div>
 
-            {/* Estado */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Estado</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Estado</label>
               <Select value={estadoFilter} onValueChange={setEstadoFilter}>
-                <SelectTrigger className="h-11 border-2 focus:border-emerald-500">
+                <SelectTrigger className="h-10">
                   <SelectValue placeholder="Todos los estados" />
                 </SelectTrigger>
                 <SelectContent>
@@ -342,9 +340,8 @@ export default function NotasPage() {
               </Select>
             </div>
 
-            {/* Rango de Fechas */}
             <div className="space-y-2 lg:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Rango de Fechas</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Rango de Fechas</label>
               <DateRangePicker
                 dateRange={dateRange}
                 onDateRangeChange={setDateRange}
@@ -353,27 +350,26 @@ export default function NotasPage() {
             </div>
           </div>
 
-          {/* Stats rápidas */}
-          <div className="grid gap-4 md:grid-cols-4 mt-6 pt-6 border-t">
+          <div className="grid gap-4 md:grid-cols-4 mt-6 pt-6 border-t border-border">
             <div className="text-center">
-              <p className="text-sm text-gray-500">Total Notas</p>
-              <p className="text-2xl font-bold text-gray-900">{filteredNotas.length}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Notas</p>
+              <p className="text-xl font-semibold text-foreground mt-1">{filteredNotas.length}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-500">Valor Total</p>
-              <p className="text-2xl font-bold text-emerald-600">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor Total</p>
+              <p className="text-xl font-semibold text-primary mt-1">
                 {formatCurrency(filteredNotas.reduce((sum, n) => sum + Math.abs(n.valor_total), 0))}
               </p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-500">Saldo Pendiente</p>
-              <p className="text-2xl font-bold text-orange-600">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Saldo Pendiente</p>
+              <p className="text-xl font-semibold text-foreground mt-1">
                 {formatCurrency(filteredNotas.reduce((sum, n) => sum + Math.abs(n.saldo_pendiente), 0))}
               </p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-500">Aplicadas</p>
-              <p className="text-2xl font-bold text-blue-600">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Aplicadas</p>
+              <p className="text-xl font-semibold text-foreground mt-1">
                 {filteredNotas.filter(n => n.estado === 'APLICADA').length}
               </p>
             </div>
@@ -383,10 +379,10 @@ export default function NotasPage() {
 
       {showForm && canWrite && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="border-0 shadow-md">
+          <Card className="border border-border">
             <CardHeader>
-              <CardTitle>Registrar Nota Crédito</CardTitle>
-              <CardDescription>Registro manual con validación en tiempo real</CardDescription>
+              <CardTitle className="text-base font-semibold text-foreground">Registrar Nota Credito</CardTitle>
+              <CardDescription>Registro manual con validacion en tiempo real</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -443,10 +439,10 @@ export default function NotasPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-md">
+          <Card className="border border-border">
             <CardHeader>
-              <CardTitle>Aplicar Nota a Factura</CardTitle>
-              <CardDescription>Aplicación directa a línea de factura</CardDescription>
+              <CardTitle className="text-base font-semibold text-foreground">Aplicar Nota a Factura</CardTitle>
+              <CardDescription>Aplicacion directa a linea de factura</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -482,23 +478,23 @@ export default function NotasPage() {
         </div>
       )}
 
-      <Card className="border-0 shadow-md">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
-          <CardTitle>Notas No Aplicadas</CardTitle>
-          <CardDescription>Motivos recientes de no aplicación</CardDescription>
+      <Card className="border border-border">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold text-foreground">Notas No Aplicadas</CardTitle>
+          <CardDescription>Motivos recientes de no aplicacion</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {noAplicadas.length === 0 && (
-            <p className="text-sm text-gray-500">Sin registros recientes</p>
+            <p className="text-sm text-muted-foreground">Sin registros recientes</p>
           )}
           {noAplicadas.map((item) => (
-            <div key={item.id} className="flex items-start justify-between border rounded-lg p-3">
+            <div key={item.id} className="flex items-start justify-between border border-border rounded-lg p-3">
               <div>
-                <p className="font-medium">{item.numero_nota}</p>
-                <p className="text-xs text-gray-500">{item.motivo}</p>
-                {item.detalle && <p className="text-xs text-gray-400">{item.detalle}</p>}
+                <p className="font-medium text-foreground">{item.numero_nota}</p>
+                <p className="text-xs text-muted-foreground">{item.motivo}</p>
+                {item.detalle && <p className="text-xs text-muted-foreground/70">{item.detalle}</p>}
               </div>
-              <div className="text-right text-xs text-gray-500">
+              <div className="text-right text-xs text-muted-foreground">
                 <p>{item.numero_factura || 'Sin factura'}</p>
                 <p>{new Date(item.fecha_registro).toLocaleString('es-CO')}</p>
               </div>
@@ -508,11 +504,11 @@ export default function NotasPage() {
       </Card>
 
       {/* Tabla */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg">Listado de Notas</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Listado de Notas</CardTitle>
               <CardDescription>
                 {filteredNotas.length} {filteredNotas.length === 1 ? 'nota encontrada' : 'notas encontradas'}
               </CardDescription>
@@ -546,32 +542,32 @@ export default function NotasPage() {
           <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <p className="text-xs text-emerald-600">Cliente</p>
-                <p className="text-sm font-semibold text-emerald-900">{selectedNota.nombre_cliente}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Cliente</p>
+                <p className="text-sm font-medium text-foreground mt-1">{selectedNota.nombre_cliente}</p>
               </div>
               <div>
-                <p className="text-xs text-emerald-600">NIT</p>
-                <p className="text-sm font-semibold text-emerald-900">{selectedNota.nit_cliente}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">NIT</p>
+                <p className="text-sm font-medium text-foreground mt-1">{selectedNota.nit_cliente}</p>
               </div>
               <div>
-                <p className="text-xs text-emerald-600">Producto</p>
-                <p className="text-sm font-semibold text-emerald-900">{selectedNota.nombre_producto}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Producto</p>
+                <p className="text-sm font-medium text-foreground mt-1">{selectedNota.nombre_producto}</p>
               </div>
               <div>
-                <p className="text-xs text-emerald-600">Código</p>
-                <p className="text-sm font-semibold text-emerald-900">{selectedNota.codigo_producto}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Codigo</p>
+                <p className="text-sm font-medium text-foreground mt-1">{selectedNota.codigo_producto}</p>
               </div>
               <div>
-                <p className="text-xs text-emerald-600">Valor total</p>
-                <p className="text-sm font-semibold text-emerald-900">{formatCurrency(Math.abs(selectedNota.valor_total))}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Valor total</p>
+                <p className="text-sm font-medium text-foreground mt-1">{formatCurrency(Math.abs(selectedNota.valor_total))}</p>
               </div>
               <div>
-                <p className="text-xs text-emerald-600">Saldo pendiente</p>
-                <p className="text-sm font-semibold text-emerald-900">{formatCurrency(Math.abs(selectedNota.saldo_pendiente))}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Saldo pendiente</p>
+                <p className="text-sm font-medium text-foreground mt-1">{formatCurrency(Math.abs(selectedNota.saldo_pendiente))}</p>
               </div>
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => navigate(`/notas/${selectedNota.id}`)}>Ver detalle completo</Button>
+              <Button size="sm" onClick={() => navigate(`/notas/${selectedNota.id}`)}>Ver detalle completo</Button>
             </div>
           </div>
         ) : null}

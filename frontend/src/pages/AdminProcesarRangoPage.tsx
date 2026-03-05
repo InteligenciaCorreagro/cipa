@@ -204,21 +204,21 @@ export default function AdminProcesarRangoPage() {
         </Alert>
       )}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-emerald-900">Procesamiento de Facturas</h1>
-        <p className="mt-2 text-emerald-700">
-          Procesa facturas por rango y guarda automáticamente los resultados en base de datos
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Procesamiento de Facturas</h1>
+        <p className="mt-1 text-muted-foreground text-sm">
+          Procesa facturas por rango y guarda automaticamente los resultados en base de datos
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* SECCIÓN: Exportar desde BD */}
-        <Card className="border border-emerald-100 shadow-sm">
+        <Card className="border border-border">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-emerald-700" />
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <FileSpreadsheet className="h-4 w-4 text-primary" />
               Exportar Excel o PDF desde BD
             </CardTitle>
-            <CardDescription className="text-emerald-700">
+            <CardDescription>
               Genera un archivo con datos de la base de datos por rango de fechas
             </CardDescription>
           </CardHeader>
@@ -253,14 +253,14 @@ export default function AdminProcesarRangoPage() {
                     onClick={() => setTipoExport(tipo.value as TipoExportacion)}
                     className={`flex items-center gap-2 rounded-lg border p-3 text-left transition-colors ${
                       tipoExport === tipo.value
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                        : 'border-emerald-100 hover:bg-emerald-50/40'
+                        ? 'border-primary/30 bg-primary/5 text-foreground'
+                        : 'border-border hover:bg-accent'
                     }`}
                   >
                     <tipo.icon className="h-4 w-4" />
-                    <div className="text-left">
+                      <div className="text-left">
                       <div className="text-sm font-medium">{tipo.label}</div>
-                      <div className="text-xs text-emerald-600">{tipo.desc}</div>
+                      <div className="text-xs text-muted-foreground">{tipo.desc}</div>
                     </div>
                   </button>
                 ))}
@@ -272,16 +272,16 @@ export default function AdminProcesarRangoPage() {
               <div className="flex gap-2">
                 <Button
                   type="button"
+                  size="sm"
                   variant={formatoExport === 'excel' ? 'default' : 'outline'}
-                  className={formatoExport === 'excel' ? '' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}
                   onClick={() => setFormatoExport('excel')}
                 >
                   Excel
                 </Button>
                 <Button
                   type="button"
+                  size="sm"
                   variant={formatoExport === 'pdf' ? 'default' : 'outline'}
-                  className={formatoExport === 'pdf' ? '' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'}
                   onClick={() => setFormatoExport('pdf')}
                 >
                   PDF
@@ -320,20 +320,20 @@ export default function AdminProcesarRangoPage() {
             )}
 
             {previewData && (
-              <div className="overflow-x-auto rounded-lg border border-emerald-100">
+              <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-emerald-50/70">
+                  <thead className="bg-muted/50">
                     <tr>
                       {previewData.columnas.map((col) => (
-                        <th key={col} className="px-3 py-2 text-left font-semibold text-emerald-800">{col}</th>
+                        <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">{col}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {previewData.rows.map((row, idx) => (
-                      <tr key={idx} className="border-t border-emerald-100">
+                      <tr key={idx} className="border-t border-border">
                         {previewData.columnas.map((col) => (
-                          <td key={col} className="px-3 py-2 text-emerald-700">{String(row[col] ?? '')}</td>
+                          <td key={col} className="px-3 py-2 text-foreground">{String(row[col] ?? '')}</td>
                         ))}
                       </tr>
                     ))}
@@ -347,7 +347,7 @@ export default function AdminProcesarRangoPage() {
                 onClick={handlePreview}
               disabled={!canProcess || loadingPreview || !fechaExportDesde || !fechaExportHasta}
                 variant="outline"
-                className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                className="w-full"
               >
                 {loadingPreview ? (
                   <>
@@ -383,15 +383,15 @@ export default function AdminProcesarRangoPage() {
         </Card>
 
         {/* SECCIÓN: Procesar desde API */}
-        <Card className="border border-emerald-100 shadow-sm">
+        <Card className="border border-border">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-emerald-700" />
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Calendar className="h-4 w-4 text-primary" />
               Procesar Rango de Fechas
             </CardTitle>
-            <CardDescription className="text-emerald-700">
+            <CardDescription>
               Procesa facturas desde la API externa y guarda en la base de datos.
-              Máximo 90 días.
+              Maximo 90 dias.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -477,20 +477,20 @@ export default function AdminProcesarRangoPage() {
               )}
             </Button>
 
-            <p className="text-xs text-emerald-700">
+            <p className="text-xs text-muted-foreground">
               Este proceso puede tomar varios minutos. Los datos se guardan en la BD
-              y se pueden exportar después.
+              y se pueden exportar despues.
             </p>
           </CardContent>
         </Card>
       </div>
 
       {/* Información adicional */}
-      <Card className="border border-emerald-100 shadow-sm">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle className="text-lg text-emerald-900">Información</CardTitle>
+          <CardTitle className="text-base font-semibold text-foreground">Informacion</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-emerald-700">
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
             <strong>Exportar Excel:</strong> Genera un archivo Excel con los datos
             ya almacenados en la base de datos. Es rápido porque no consulta la API externa.

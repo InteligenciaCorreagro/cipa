@@ -91,8 +91,8 @@ export default function NotaDetailPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
-          <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto" />
-          <p className="text-gray-500">Cargando detalles...</p>
+          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" />
+          <p className="text-muted-foreground text-sm">Cargando detalles...</p>
         </div>
       </div>
     )
@@ -101,18 +101,17 @@ export default function NotaDetailPage() {
   if (error || !nota) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
-        <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center">
-          <AlertCircle className="w-8 h-8 text-red-600" />
+        <div className="w-12 h-12 bg-destructive/8 rounded-xl flex items-center justify-center">
+          <AlertCircle className="w-6 h-6 text-destructive" />
         </div>
         <div className="text-center space-y-2">
-          <h3 className="text-xl font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold text-foreground">
             {error || 'Nota no encontrada'}
           </h3>
-          <p className="text-gray-500">La nota que buscas no existe o no tienes permisos</p>
+          <p className="text-muted-foreground text-sm">La nota que buscas no existe o no tienes permisos</p>
         </div>
         <Button 
           onClick={() => navigate('/notas')}
-          className="bg-emerald-600 hover:bg-emerald-700"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Volver al listado
@@ -166,12 +165,12 @@ export default function NotaDetailPage() {
       label: 'Factura',
       render: (aplicacion: Aplicacion) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-            <Receipt className="w-5 h-5 text-blue-600" />
+          <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+            <Receipt className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{aplicacion.numero_factura}</p>
-            <p className="text-xs text-gray-500">
+            <p className="font-medium text-foreground">{aplicacion.numero_factura}</p>
+            <p className="text-xs text-muted-foreground">
               {formatDate(aplicacion.fecha_factura)}
             </p>
           </div>
@@ -184,10 +183,10 @@ export default function NotaDetailPage() {
       align: 'right' as const,
       render: (aplicacion: Aplicacion) => (
         <div className="text-right">
-          <p className="font-bold text-emerald-600">
+          <p className="font-medium text-primary">
             {formatCurrency(Math.abs(aplicacion.valor_aplicado))}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             Cant: {aplicacion.cantidad_aplicada}
           </p>
         </div>
@@ -195,11 +194,11 @@ export default function NotaDetailPage() {
     },
     {
       key: 'fecha',
-      label: 'Fecha Aplicación',
+      label: 'Fecha Aplicacion',
       render: (aplicacion: Aplicacion) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-700">
+          <Calendar className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">
             {formatDateTime(aplicacion.fecha_aplicacion)}
           </span>
         </div>
@@ -209,81 +208,78 @@ export default function NotaDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header con gradiente */}
-      <div className="bg-gradient-to-r from-emerald-50 to-blue-50 rounded-2xl p-6 border-2 border-emerald-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/notas')}
-              className="hover:bg-white/80"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-                Nota {nota.numero_nota}
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Detalles y historial de aplicaciones
-              </p>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate('/notas')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Nota {nota.numero_nota}
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Detalles y historial de aplicaciones
+            </p>
           </div>
-          {getEstadoBadge(nota.estado)}
         </div>
+        {getEstadoBadge(nota.estado)}
       </div>
 
-      {/* Info Cards con diseño mejorado */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="border-2 border-emerald-200 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center ring-4 ring-white shadow-sm">
-                <DollarSign className="h-7 w-7 text-emerald-600" />
+      {/* Info Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <DollarSign className="h-4 w-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Valor Total</p>
             </div>
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Valor Total</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <p className="text-2xl font-semibold text-foreground">
               {formatCurrency(Math.abs(nota.valor_total))}
             </p>
-            <p className="text-xs text-gray-500 mt-2">
-              Cantidad: <span className="font-semibold">{nota.cantidad}</span>
+            <p className="text-xs text-muted-foreground mt-2">
+              Cantidad: <span className="font-medium">{nota.cantidad}</span>
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-orange-200 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center ring-4 ring-white shadow-sm">
-                <AlertCircle className="h-7 w-7 text-orange-600" />
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <AlertCircle className="h-4 w-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Saldo Pendiente</p>
             </div>
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Saldo Pendiente</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <p className="text-2xl font-semibold text-foreground">
               {formatCurrency(Math.abs(nota.saldo_pendiente))}
             </p>
-            <p className="text-xs text-gray-500 mt-2">
-              Cantidad pendiente: <span className="font-semibold">{nota.cantidad_pendiente}</span>
+            <p className="text-xs text-muted-foreground mt-2">
+              Cantidad pendiente: <span className="font-medium">{nota.cantidad_pendiente}</span>
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-blue-200 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center ring-4 ring-white shadow-sm">
-                <TrendingUp className="h-7 w-7 text-blue-600" />
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <TrendingUp className="h-4 w-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Porcentaje Aplicado</p>
             </div>
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Porcentaje Aplicado</h3>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight">
+            <p className="text-2xl font-semibold text-foreground">
               {porcentajeAplicado.toFixed(1)}%
             </p>
-            <div className="w-full bg-gray-200 rounded-full h-3 mt-3 overflow-hidden">
+            <div className="w-full bg-muted rounded-full h-2 mt-3 overflow-hidden">
               <div
-                className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                className="bg-primary h-2 rounded-full transition-all duration-500"
                 style={{ width: `${porcentajeAplicado}%` }}
               />
             </div>
@@ -291,82 +287,82 @@ export default function NotaDetailPage() {
         </Card>
       </div>
 
-      {/* Details con diseño mejorado */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      {/* Details */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="border border-border">
+          <CardHeader>
             <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-emerald-600" />
-              <CardTitle className="text-lg">Información de la Nota</CardTitle>
+              <FileText className="w-4 h-4 text-primary" />
+              <CardTitle className="text-base font-semibold text-foreground">Informacion de la Nota</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="space-y-5 pt-6">
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <FileText className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+          <CardContent className="space-y-1">
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <FileText className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Número de Nota</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{nota.numero_nota}</p>
+                <p className="text-xs font-medium text-muted-foreground">Numero de Nota</p>
+                <p className="text-sm text-foreground font-medium mt-0.5">{nota.numero_nota}</p>
               </div>
             </div>
             
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <Calendar className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Fecha de Nota</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{formatDate(nota.fecha_nota)}</p>
+                <p className="text-xs font-medium text-muted-foreground">Fecha de Nota</p>
+                <p className="text-sm text-foreground font-medium mt-0.5">{formatDate(nota.fecha_nota)}</p>
               </div>
             </div>
             
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <Clock className="h-5 w-5 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <Clock className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Fecha de Registro</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{formatDateTime(nota.fecha_registro)}</p>
+                <p className="text-xs font-medium text-muted-foreground">Fecha de Registro</p>
+                <p className="text-sm text-foreground font-medium mt-0.5">{formatDateTime(nota.fecha_registro)}</p>
               </div>
             </div>
             
             {nota.fecha_aplicacion_completa && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-emerald-50 transition-colors border-2 border-emerald-200">
-                <CheckCircle className="h-5 w-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
+                <CheckCircle className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-gray-700">Aplicación Completa</p>
-                  <p className="text-sm text-emerald-700 font-medium mt-1">{formatDateTime(nota.fecha_aplicacion_completa)}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Aplicacion Completa</p>
+                  <p className="text-sm text-primary font-medium mt-0.5">{formatDateTime(nota.fecha_aplicacion_completa)}</p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+        <Card className="border border-border">
+          <CardHeader>
             <div className="flex items-center gap-2">
-              <User className="w-5 h-5 text-blue-600" />
-              <CardTitle className="text-lg">Información del Cliente</CardTitle>
+              <User className="w-4 h-4 text-primary" />
+              <CardTitle className="text-base font-semibold text-foreground">Informacion del Cliente</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="space-y-5 pt-6">
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <User className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <CardContent className="space-y-1">
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <User className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Cliente</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{nota.nombre_cliente}</p>
+                <p className="text-xs font-medium text-muted-foreground">Cliente</p>
+                <p className="text-sm text-foreground font-medium mt-0.5">{nota.nombre_cliente}</p>
               </div>
             </div>
             
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <FileText className="h-5 w-5 text-gray-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <FileText className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">NIT</p>
-                <p className="text-sm text-gray-900 font-mono font-medium mt-1">{nota.nit_cliente}</p>
+                <p className="text-xs font-medium text-muted-foreground">NIT</p>
+                <p className="text-sm text-foreground font-mono font-medium mt-0.5">{nota.nit_cliente}</p>
               </div>
             </div>
             
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <Package className="h-5 w-5 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-accent transition-colors">
+              <Package className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-700">Producto</p>
-                <p className="text-sm text-gray-900 font-medium mt-1">{nota.nombre_producto}</p>
-                <p className="text-xs text-gray-500 mt-1">Código: <span className="font-mono">{nota.codigo_producto}</span></p>
+                <p className="text-xs font-medium text-muted-foreground">Producto</p>
+                <p className="text-sm text-foreground font-medium mt-0.5">{nota.nombre_producto}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Codigo: <span className="font-mono">{nota.codigo_producto}</span></p>
               </div>
             </div>
             
@@ -374,21 +370,21 @@ export default function NotaDetailPage() {
         </Card>
       </div>
 
-      {/* Aplicaciones History con tabla mejorada */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      {/* Aplicaciones History */}
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-emerald-600" />
-                <CardTitle className="text-lg">Historial de Aplicaciones</CardTitle>
+                <Receipt className="w-4 h-4 text-primary" />
+                <CardTitle className="text-base font-semibold text-foreground">Historial de Aplicaciones</CardTitle>
               </div>
               <CardDescription className="mt-1">
-                {aplicaciones.length} {aplicaciones.length === 1 ? 'aplicación registrada' : 'aplicaciones registradas'}
+                {aplicaciones.length} {aplicaciones.length === 1 ? 'aplicacion registrada' : 'aplicaciones registradas'}
               </CardDescription>
             </div>
             {aplicaciones.length > 0 && (
-              <Badge variant="info" className="text-sm">
+              <Badge variant="info" className="text-xs">
                 Total: {aplicaciones.length}
               </Badge>
             )}
@@ -398,8 +394,8 @@ export default function NotaDetailPage() {
           {loadingAplicaciones ? (
             <div className="flex items-center justify-center h-32">
               <div className="text-center space-y-3">
-                <Loader2 className="w-8 h-8 text-emerald-600 animate-spin mx-auto" />
-                <p className="text-gray-500 text-sm">Cargando aplicaciones...</p>
+                <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+                <p className="text-muted-foreground text-sm">Cargando aplicaciones...</p>
               </div>
             </div>
           ) : aplicaciones && aplicaciones.length > 0 ? (
@@ -409,15 +405,16 @@ export default function NotaDetailPage() {
               keyExtractor={(aplicacion) => aplicacion.id.toString()}
               hoverable
               bordered
+              compact
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-48 space-y-3">
-              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                <Receipt className="w-8 h-8 text-gray-400" />
+              <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                <Receipt className="w-6 h-6 text-muted-foreground" />
               </div>
               <div className="text-center">
-                <p className="text-gray-900 font-medium">Sin aplicaciones</p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-foreground font-medium text-sm">Sin aplicaciones</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   No hay aplicaciones registradas para esta nota
                 </p>
               </div>

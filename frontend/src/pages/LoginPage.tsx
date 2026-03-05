@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Leaf, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -28,7 +28,6 @@ export default function LoginPage() {
     e.preventDefault()
     setFieldErrors({})
 
-    // Validación de campos
     const errors: { username?: string; password?: string } = {}
 
     if (!username.trim()) {
@@ -48,39 +47,40 @@ export default function LoginPage() {
       return
     }
 
-    // Login real usando zustand store
     try {
       await login({ username, password, otp: otp || undefined })
       navigate('/')
     } catch (err) {
-      console.error('Error al iniciar sesión:', err)
-      // El error ya está manejado por el store y se muestra abajo
+      console.error('Error al iniciar sesion:', err)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-white p-4">
-      <div className="w-full max-w-md">
-        {/* Logo y título */}
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="w-full max-w-sm">
+        {/* Logo */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg shadow-emerald-600/30 mb-6">
-            <Leaf className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold tracking-tight text-emerald-900">CIPA</h1>
-          <p className="text-emerald-700 mt-2 text-sm">Sistema de Gestión de Notas de Crédito</p>
+          <img
+            src="/images/logo-cipa.png"
+            alt="CIPA Logo"
+            className="h-16 w-auto mx-auto mb-4"
+          />
+          <p className="text-muted-foreground text-sm tracking-wide">
+            Sistema de Gestion de Notas de Credito
+          </p>
         </div>
 
-        {/* Formulario */}
-        <div className="bg-white rounded-2xl shadow-xl border border-emerald-100 p-8">
+        {/* Form Card */}
+        <div className="bg-card rounded-2xl border border-border p-8 shadow-sm">
           {localStorage.getItem('logout_success') && (
-            <div className="mb-4 text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-200 flex items-center gap-2">
+            <div className="mb-4 text-sm text-primary bg-secondary px-4 py-3 rounded-lg border border-border flex items-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              Sesión cerrada correctamente
+              Sesion cerrada correctamente
             </div>
           )}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-emerald-800 text-sm font-medium">
+              <Label htmlFor="username" className="text-foreground text-sm font-medium">
                 Usuario
               </Label>
               <Input
@@ -93,49 +93,49 @@ export default function LoginPage() {
                   if (fieldErrors.username) setFieldErrors((prev) => ({ ...prev, username: undefined }))
                 }}
                 autoComplete="username"
-                className={`h-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300 ${
-                  fieldErrors.username ? "border-emerald-600 focus:border-emerald-700 focus:ring-emerald-600/20" : ""
+                className={`h-11 bg-background border-border focus:border-primary focus:ring-ring/20 transition-all placeholder:text-muted-foreground/50 ${
+                  fieldErrors.username ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""
                 }`}
               />
               {fieldErrors.username && (
-                <div className="flex items-center gap-1 text-sm text-emerald-700 mt-1">
-                  <AlertCircle className="w-4 h-4 text-emerald-600" />
+                <div className="flex items-center gap-1 text-sm text-destructive mt-1">
+                  <AlertCircle className="w-4 h-4" />
                   {fieldErrors.username}
                 </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-emerald-800 text-sm font-medium">
-                Contraseña
+              <Label htmlFor="password" className="text-foreground text-sm font-medium">
+                Contrasena
               </Label>
               <div className="relative">
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Ingrese su contraseña"
+                  placeholder="Ingrese su contrasena"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
                     if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }))
                   }}
                   autoComplete="current-password"
-                  className={`h-12 pr-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300 ${
-                    fieldErrors.password ? "border-emerald-600 focus:border-emerald-700 focus:ring-emerald-600/20" : ""
+                  className={`h-11 pr-12 bg-background border-border focus:border-primary focus:ring-ring/20 transition-all placeholder:text-muted-foreground/50 ${
+                    fieldErrors.password ? "border-destructive focus:border-destructive focus:ring-destructive/20" : ""
                   }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 hover:text-emerald-600 transition-colors"
-                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {fieldErrors.password && (
-                <div className="flex items-center gap-1 text-sm text-emerald-700 mt-1">
-                  <AlertCircle className="w-4 h-4 text-emerald-600" />
+                <div className="flex items-center gap-1 text-sm text-destructive mt-1">
+                  <AlertCircle className="w-4 h-4" />
                   {fieldErrors.password}
                 </div>
               )}
@@ -143,47 +143,46 @@ export default function LoginPage() {
 
             {requires2fa && (
               <div className="space-y-2">
-                <Label htmlFor="otp" className="text-emerald-800 text-sm font-medium">
-                  Código OTP
+                <Label htmlFor="otp" className="text-foreground text-sm font-medium">
+                  Codigo OTP
                 </Label>
                 <Input
                   id="otp"
                   type="text"
-                  placeholder="Ingrese el código de 6 dígitos"
+                  placeholder="Ingrese el codigo de 6 digitos"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                   autoComplete="one-time-code"
-                  className="h-12 border-emerald-200 bg-emerald-50/40 focus:bg-white focus:border-emerald-600 focus:ring-emerald-500/20 transition-all placeholder:text-emerald-300"
+                  className="h-11 bg-background border-border focus:border-primary focus:ring-ring/20 transition-all placeholder:text-muted-foreground/50"
                 />
               </div>
             )}
 
             {error && (
-              <div className="text-sm text-emerald-700 bg-emerald-50 px-4 py-3 rounded-lg border border-emerald-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+              <div className="text-sm text-destructive bg-destructive/5 px-4 py-3 rounded-lg border border-destructive/20 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 {error}
               </div>
             )}
 
             <Button
               type="submit"
-              className="w-full h-12 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-medium transition-all shadow-lg shadow-emerald-600/30 hover:shadow-xl hover:shadow-emerald-600/40"
+              className="w-full h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-all"
               disabled={isLoading}
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="animate-spin h-4 w-4" />
-                  Iniciando sesión...
+                  Iniciando sesion...
                 </span>
               ) : (
-                "Iniciar Sesión"
+                "Iniciar Sesion"
               )}
             </Button>
           </form>
 
-          {/* Footer */}
-          <p className="text-center text-xs text-emerald-400 mt-6">
-            © 2025 CIPA. Todos los derechos reservados.
+          <p className="text-center text-xs text-muted-foreground mt-6">
+            CIPA - Todos los derechos reservados.
           </p>
         </div>
       </div>

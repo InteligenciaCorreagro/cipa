@@ -103,7 +103,7 @@ export default function NotasPendientesPage() {
       key: 'numero_nota',
       label: 'Nota',
       render: (item: NotaPendiente) => (
-        <div className="font-semibold text-gray-900">{item.numero_nota}</div>
+        <div className="font-medium text-foreground">{item.numero_nota}</div>
       )
     },
     {
@@ -120,8 +120,8 @@ export default function NotasPendientesPage() {
       key: 'vencimiento',
       label: 'Vencimiento',
       render: (item: NotaPendiente) => (
-        <div className="flex items-center gap-2 text-sm text-gray-700">
-          <Calendar className="w-4 h-4 text-gray-400" />
+        <div className="flex items-center gap-2 text-sm text-foreground">
+          <Calendar className="w-4 h-4 text-muted-foreground" />
           {item.fecha_vencimiento || 'Sin fecha'}
         </div>
       )
@@ -130,7 +130,7 @@ export default function NotasPendientesPage() {
       key: 'responsable',
       label: 'Responsable',
       render: (item: NotaPendiente) => (
-        <div className="text-sm text-gray-700">{item.responsable || 'Sin asignar'}</div>
+        <div className="text-sm text-foreground">{item.responsable || 'Sin asignar'}</div>
       )
     },
     {
@@ -150,8 +150,8 @@ export default function NotasPendientesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Notas Pendientes</h1>
-          <p className="text-gray-500 mt-1">Gestión con prioridades y responsables</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Notas Pendientes</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Gestion con prioridades y responsables</p>
         </div>
         <Button onClick={fetchNotas} variant="outline" size="sm" className="gap-2">
           <RefreshCw className="h-4 w-4" />
@@ -160,21 +160,21 @@ export default function NotasPendientesPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="border-0 shadow-md">
+        <Card className="border border-border">
           <CardHeader>
-            <CardTitle>Vencidas</CardTitle>
-            <CardDescription>Requieren acción inmediata</CardDescription>
+            <CardTitle className="text-base font-semibold text-foreground">Vencidas</CardTitle>
+            <CardDescription>Requieren accion inmediata</CardDescription>
           </CardHeader>
-          <CardContent className="text-3xl font-bold text-red-600">
+          <CardContent className="text-2xl font-semibold text-destructive">
             {alertas.vencidas.length}
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-md">
+        <Card className="border border-border">
           <CardHeader>
-            <CardTitle>Próximas</CardTitle>
-            <CardDescription>Vencen en 7 días</CardDescription>
+            <CardTitle className="text-base font-semibold text-foreground">Proximas</CardTitle>
+            <CardDescription>Vencen en 7 dias</CardDescription>
           </CardHeader>
-          <CardContent className="text-3xl font-bold text-emerald-600">
+          <CardContent className="text-2xl font-semibold text-primary">
             {alertas.proximas.length}
           </CardContent>
         </Card>
@@ -278,16 +278,16 @@ export default function NotasPendientesPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-0 shadow-md">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle>Listado</CardTitle>
+          <CardTitle className="text-base font-semibold text-foreground">Listado</CardTitle>
           <CardDescription>{total} registros</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <Table columns={columns} data={items} keyExtractor={(item) => String(item.id)} bordered hoverable />
           <div className="flex items-center justify-between p-4">
-            <div className="text-sm text-gray-500">
-              Página {page + 1} de {totalPages || 1}
+            <div className="text-sm text-muted-foreground">
+              Pagina {page + 1} de {totalPages || 1}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>
@@ -298,7 +298,7 @@ export default function NotasPendientesPage() {
               </Button>
             </div>
           </div>
-          {loading && <div className="p-4 text-sm text-gray-500">Cargando...</div>}
+          {loading && <div className="p-4 text-sm text-muted-foreground">Cargando...</div>}
         </CardContent>
       </Card>
     </div>

@@ -74,8 +74,8 @@ export default function AplicacionesSistemaPage() {
       label: 'Aplicación',
       render: (item: AplicacionSistema) => (
         <div>
-          <div className="font-semibold text-gray-900">{item.nombre}</div>
-          <div className="text-xs text-gray-500">v{item.version}</div>
+          <div className="font-medium text-foreground">{item.nombre}</div>
+          <div className="text-xs text-muted-foreground">v{item.version}</div>
         </div>
       )
     },
@@ -94,7 +94,7 @@ export default function AplicacionesSistemaPage() {
       key: 'instalacion',
       label: 'Instalación',
       render: (item: AplicacionSistema) => (
-        <span className="text-sm text-gray-700">{item.fecha_instalacion || 'N/D'}</span>
+        <span className="text-sm text-foreground">{item.fecha_instalacion || 'N/D'}</span>
       )
     },
     {
@@ -102,7 +102,7 @@ export default function AplicacionesSistemaPage() {
       label: 'Uso',
       align: 'right' as const,
       render: (item: AplicacionSistema) => (
-        <span className="font-semibold text-gray-900">{item.uso_total || 0}</span>
+        <span className="font-medium text-foreground">{item.uso_total || 0}</span>
       )
     }
   ]
@@ -111,8 +111,8 @@ export default function AplicacionesSistemaPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Aplicaciones</h1>
-          <p className="text-gray-500 mt-1">Estado y métricas de uso</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Aplicaciones</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Estado y metricas de uso</p>
         </div>
         <Button onClick={fetchApps} variant="outline" size="sm" className="gap-2">
           <RefreshCw className="h-4 w-4" />
@@ -190,8 +190,8 @@ export default function AplicacionesSistemaPage() {
         <CardContent className="p-0">
           <Table columns={columns} data={items} keyExtractor={(item) => String(item.id)} bordered hoverable />
           <div className="flex items-center justify-between p-4">
-            <div className="text-sm text-gray-500">
-              Página {page + 1} de {totalPages || 1}
+            <div className="text-sm text-muted-foreground">
+              Pagina {page + 1} de {totalPages || 1}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>
@@ -202,7 +202,7 @@ export default function AplicacionesSistemaPage() {
               </Button>
             </div>
           </div>
-          {loading && <div className="p-4 text-sm text-gray-500">Cargando...</div>}
+          {loading && <div className="p-4 text-sm text-muted-foreground">Cargando...</div>}
         </CardContent>
       </Card>
     </div>
