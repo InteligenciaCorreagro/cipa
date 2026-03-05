@@ -73,8 +73,8 @@ export function Table<T>({
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-center space-y-3">
-          <div className="w-12 h-12 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-gray-500 text-sm">Cargando datos...</p>
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-muted-foreground text-sm">Cargando datos...</p>
         </div>
       </div>
     )
@@ -83,9 +83,9 @@ export function Table<T>({
   if (data.length === 0) {
     return (
       <div className="text-center py-12">
-        <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-4">
           <svg
-            className="w-8 h-8 text-gray-400"
+            className="w-6 h-6 text-muted-foreground"
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -96,7 +96,7 @@ export function Table<T>({
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </div>
-        <p className="text-gray-500 font-medium">{emptyMessage}</p>
+        <p className="text-muted-foreground text-sm font-medium">{emptyMessage}</p>
       </div>
     )
   }
@@ -106,19 +106,19 @@ export function Table<T>({
       <table className="w-full">
         <thead>
           <tr className={cn(
-            'bg-gradient-to-r from-gray-50 to-gray-100',
-            bordered && 'border-b-2 border-gray-200'
+            'bg-muted/50',
+            bordered && 'border-b border-border'
           )}>
             {columns.map((column) => (
               <th
                 key={String(column.key)}
                 className={cn(
-                  'font-semibold text-sm text-gray-700',
-                  compact ? 'py-3 px-4' : 'py-4 px-6',
+                  'text-xs font-medium text-muted-foreground uppercase tracking-wider',
+                  compact ? 'py-3 px-4' : 'py-3 px-6',
                   column.align === 'center' && 'text-center',
                   column.align === 'right' && 'text-right',
                   column.align !== 'center' && column.align !== 'right' && 'text-left',
-                  column.sortable && 'cursor-pointer hover:text-emerald-600 transition-colors select-none'
+                  column.sortable && 'cursor-pointer hover:text-foreground transition-colors select-none'
                 )}
                 style={{ width: column.width }}
               >
@@ -126,7 +126,7 @@ export function Table<T>({
                   <span>{column.label}</span>
                   {column.sortable && (
                     <svg
-                      className="w-4 h-4 text-gray-400"
+                      className="w-4 h-4 text-muted-foreground/50"
                       fill="none"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -143,26 +143,25 @@ export function Table<T>({
           </tr>
         </thead>
         <tbody className={cn(
-          bordered && 'divide-y divide-gray-100'
+          bordered && 'divide-y divide-border'
         )}>
           {paginatedData.map((row, index) => (
             <tr
               key={keyExtractor(row)}
               className={cn(
-                'transition-all duration-200',
-                hoverable && 'hover:bg-gray-50/80 hover:shadow-sm cursor-pointer',
-                striped && index % 2 === 0 && 'bg-gray-50/30',
+                'transition-colors',
+                hoverable && 'hover:bg-muted/30 cursor-pointer',
+                striped && index % 2 === 0 && 'bg-muted/20',
                 onRowClick && 'cursor-pointer'
               )}
               onClick={() => onRowClick?.(row)}
-              style={{ animationDelay: `${index * 30}ms` }}
             >
               {columns.map((column) => (
                 <td
                   key={String(column.key)}
                   className={cn(
-                    'text-gray-900',
-                    compact ? 'py-3 px-4' : 'py-4 px-6',
+                    'text-foreground',
+                    compact ? 'py-3 px-4' : 'py-3.5 px-6',
                     column.align === 'center' && 'text-center',
                     column.align === 'right' && 'text-right'
                   )}
@@ -187,16 +186,16 @@ export function Table<T>({
         </tbody>
       </table>
       {enablePagination && totalPages > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
-          <p className="text-sm text-emerald-700">
-            Página {currentPage} de {totalPages}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Pagina {currentPage} de {totalPages}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
-              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-50"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
             >
               Anterior
             </button>
@@ -206,10 +205,10 @@ export function Table<T>({
                 type="button"
                 onClick={() => setCurrentPage(page)}
                 className={cn(
-                  'rounded-md border px-3 py-1.5 text-sm',
+                  'rounded-lg border px-3 py-1.5 text-sm transition-colors',
                   currentPage === page
-                    ? 'border-emerald-600 bg-emerald-600 text-white'
-                    : 'border-emerald-200 text-emerald-700'
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-foreground hover:bg-accent'
                 )}
               >
                 {page}
@@ -219,7 +218,7 @@ export function Table<T>({
               type="button"
               onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
               disabled={currentPage === totalPages}
-              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-50"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
             >
               Siguiente
             </button>
@@ -241,16 +240,16 @@ export function Badge({
   className?: string
 }) {
   const variants = {
-    default: 'bg-gray-100 text-gray-700 border-gray-200',
-    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    warning: 'bg-orange-50 text-orange-700 border-orange-200',
-    danger: 'bg-red-50 text-red-700 border-red-200',
-    info: 'bg-blue-50 text-blue-700 border-blue-200'
+    default: 'bg-muted text-muted-foreground border-border',
+    success: 'bg-primary/8 text-primary border-primary/20',
+    warning: 'bg-accent text-foreground border-border',
+    danger: 'bg-destructive/8 text-destructive border-destructive/20',
+    info: 'bg-secondary text-secondary-foreground border-border'
   }
 
   return (
     <span className={cn(
-      'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border',
+      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border',
       variants[variant],
       className
     )}>

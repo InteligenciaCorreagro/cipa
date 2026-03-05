@@ -56,28 +56,28 @@ export default function LogsPage() {
     {
       key: 'fecha',
       label: 'Fecha',
-      render: (item: LogEntry) => <span className="text-sm text-gray-700">{item.fecha_registro}</span>
+      render: (item: LogEntry) =>       <span className="text-sm text-foreground">{item.fecha_registro}</span>
     },
     {
       key: 'entidad',
       label: 'Entidad',
-      render: (item: LogEntry) => <span className="font-medium text-gray-900">{item.entidad}</span>
+      render: (item: LogEntry) => <span className="font-medium text-foreground">{item.entidad}</span>
     },
     {
       key: 'accion',
-      label: 'Acción',
-      render: (item: LogEntry) => <span className="text-sm text-gray-700">{item.accion}</span>
+      label: 'Accion',
+      render: (item: LogEntry) => <span className="text-sm text-foreground">{item.accion}</span>
     },
     {
       key: 'usuario',
       label: 'Usuario',
-      render: (item: LogEntry) => <span className="text-sm text-gray-700">{item.usuario || 'N/D'}</span>
+      render: (item: LogEntry) => <span className="text-sm text-foreground">{item.usuario || 'N/D'}</span>
     },
     {
       key: 'payload',
       label: 'Detalle',
       render: (item: LogEntry) => (
-        <span className="text-xs text-gray-500 break-all">{item.payload || ''}</span>
+        <span className="text-xs text-muted-foreground break-all">{item.payload || ''}</span>
       )
     }
   ]
@@ -86,8 +86,8 @@ export default function LogsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Logs del Sistema</h1>
-          <p className="text-gray-500 mt-1">Auditoría de acciones críticas</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Logs del Sistema</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Auditoria de acciones criticas</p>
         </div>
         <Button onClick={fetchLogs} variant="outline" size="sm" className="gap-2">
           <RefreshCw className="h-4 w-4" />
@@ -95,10 +95,10 @@ export default function LogsPage() {
         </Button>
       </div>
 
-      <Card className="border-0 shadow-md">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
+            <Filter className="w-4 h-4 text-muted-foreground" />
             <CardTitle className="text-lg">Filtros</CardTitle>
           </div>
           <CardDescription>Filtra por entidad, usuario o fecha</CardDescription>
@@ -116,16 +116,16 @@ export default function LogsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-0 shadow-md">
+      <Card className="border border-border">
         <CardHeader>
-          <CardTitle>Listado</CardTitle>
+          <CardTitle className="text-base font-semibold text-foreground">Listado</CardTitle>
           <CardDescription>{total} registros</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <Table columns={columns} data={items} keyExtractor={(item) => String(item.id)} bordered hoverable enablePagination={false} />
           <div className="flex items-center justify-between p-4">
-            <div className="text-sm text-gray-500">
-              Página {page + 1} de {totalPages || 1}
+            <div className="text-sm text-muted-foreground">
+              Pagina {page + 1} de {totalPages || 1}
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>
@@ -146,7 +146,7 @@ export default function LogsPage() {
               </Button>
             </div>
           </div>
-          {loading && <div className="p-4 text-sm text-gray-500">Cargando...</div>}
+          {loading && <div className="p-4 text-sm text-muted-foreground">Cargando...</div>}
         </CardContent>
       </Card>
     </div>

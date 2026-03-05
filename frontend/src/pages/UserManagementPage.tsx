@@ -224,12 +224,12 @@ export default function UserManagementPage() {
       label: 'Usuario',
       render: (user: User) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white font-semibold text-sm shadow-md">
+          <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center text-primary font-medium text-sm">
             {user.username.substring(0, 2).toUpperCase()}
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{user.username}</p>
-            <div className="flex items-center gap-1 text-xs text-gray-500">
+            <p className="font-medium text-foreground">{user.username}</p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <Mail className="w-3 h-3" />
               {user.email || 'Sin email'}
             </div>
@@ -267,18 +267,18 @@ export default function UserManagementPage() {
       label: 'Último Acceso',
       render: (user: User) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-700">{formatDate(user.ultimo_acceso)}</span>
+          <Calendar className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">{formatDate(user.ultimo_acceso)}</span>
         </div>
       )
     },
     {
       key: 'fecha_creacion',
-      label: 'Creación',
+      label: 'Creacion',
       render: (user: User) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-700">{formatDate(user.fecha_creacion)}</span>
+          <Calendar className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">{formatDate(user.fecha_creacion)}</span>
         </div>
       )
     }
@@ -286,22 +286,19 @@ export default function UserManagementPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header con gradiente */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl p-6 border-2 border-purple-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg">
-              <Users className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-                Gestión de Usuarios
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Administra los usuarios del sistema
-              </p>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Gestion de Usuarios
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Administra los usuarios del sistema
+            </p>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             onClick={() => navigate('/')}
@@ -313,69 +310,69 @@ export default function UserManagementPage() {
         </div>
       </div>
 
-      {/* Stats rápidas */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card className="border-2 border-blue-200 shadow-md hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
-                <Users className="w-6 h-6 text-blue-600" />
+      {/* Stats */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <Users className="w-4 h-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Usuarios</p>
             </div>
-            <p className="text-sm font-medium text-gray-600">Total Usuarios</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">{users.length}</p>
+            <p className="text-2xl font-semibold text-foreground">{users.length}</p>
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-emerald-200 shadow-md hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-emerald-600" />
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <CheckCircle className="w-4 h-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Activos</p>
             </div>
-            <p className="text-sm font-medium text-gray-600">Activos</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">
+            <p className="text-2xl font-semibold text-foreground">
               {users.filter(u => u.activo).length}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-red-200 shadow-md hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center">
-                <Shield className="w-6 h-6 text-red-600" />
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <Shield className="w-4 h-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Admins</p>
             </div>
-            <p className="text-sm font-medium text-gray-600">Admins</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">
+            <p className="text-2xl font-semibold text-foreground">
               {users.filter(u => u.rol === 'admin').length}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-purple-200 shadow-md hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center">
-                <Edit className="w-6 h-6 text-purple-600" />
+        <Card className="border border-border">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                <Edit className="w-4 h-4 text-primary" />
               </div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Editores</p>
             </div>
-            <p className="text-sm font-medium text-gray-600">Editores</p>
-            <p className="text-3xl font-bold text-gray-900 mt-1">
+            <p className="text-2xl font-semibold text-foreground">
               {users.filter(u => u.rol === 'editor').length}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-emerald-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-emerald-600" />
+            <Shield className="w-4 h-4 text-primary" />
             <div>
-              <CardTitle className="text-lg">Autenticación de dos factores</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Autenticacion de dos factores</CardTitle>
               <CardDescription className="mt-1">Protege el acceso con OTP</CardDescription>
             </div>
           </div>
@@ -398,14 +395,14 @@ export default function UserManagementPage() {
             </Button>
           </div>
           {(twoFaSecret || twoFaUri) && (
-            <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/50 p-4">
-              <div className="text-sm text-gray-700">Secreto: <span className="font-mono">{twoFaSecret}</span></div>
-              <div className="text-sm text-gray-700 break-all">URI: {twoFaUri}</div>
+            <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-4">
+              <div className="text-sm text-foreground">Secreto: <span className="font-mono">{twoFaSecret}</span></div>
+              <div className="text-sm text-foreground break-all">URI: {twoFaUri}</div>
             </div>
           )}
           <div className="grid gap-3 md:grid-cols-3">
             <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="otp" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Label htmlFor="otp" className="text-sm font-medium text-foreground flex items-center gap-2">
                 <Lock className="w-4 h-4" />
                 OTP
               </Label>
@@ -413,11 +410,11 @@ export default function UserManagementPage() {
                 id="otp"
                 value={twoFaOtp}
                 onChange={(e) => setTwoFaOtp(e.target.value)}
-                className="h-11 border-2 focus:border-emerald-500"
+                className="h-11"
               />
             </div>
             <div className="flex items-end">
-              <Button onClick={handleEnable2fa} className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700">
+              <Button onClick={handleEnable2fa} className="w-full">
                 Habilitar 2FA
               </Button>
             </div>
@@ -426,12 +423,12 @@ export default function UserManagementPage() {
       </Card>
 
       {/* Formulario de Creación de Usuario */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-emerald-600" />
+            <UserPlus className="w-4 h-4 text-primary" />
             <div>
-              <CardTitle className="text-lg">Crear Nuevo Usuario</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Crear Nuevo Usuario</CardTitle>
               <CardDescription className="mt-1">
                 Complete el formulario para crear un nuevo usuario en el sistema
               </CardDescription>
@@ -442,7 +439,7 @@ export default function UserManagementPage() {
           <form onSubmit={handleCreateUser} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Label htmlFor="username" className="text-sm font-medium text-foreground flex items-center gap-2">
                   <Users className="w-4 h-4" />
                   Usuario *
                 </Label>
@@ -452,13 +449,13 @@ export default function UserManagementPage() {
                   placeholder="nombre.usuario"
                   value={newUser.username}
                   onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  className="h-11 border-2 focus:border-emerald-500"
+                  className="h-11"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Label htmlFor="email" className="text-sm font-medium text-foreground flex items-center gap-2">
                   <Mail className="w-4 h-4" />
                   Email
                 </Label>
@@ -468,12 +465,12 @@ export default function UserManagementPage() {
                   placeholder="usuario@ejemplo.com"
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                  className="h-11 border-2 focus:border-emerald-500"
+                  className="h-11"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Label htmlFor="password" className="text-sm font-medium text-foreground flex items-center gap-2">
                   <Lock className="w-4 h-4" />
                   Contraseña *
                 </Label>
@@ -483,13 +480,13 @@ export default function UserManagementPage() {
                   placeholder="Mínimo 6 caracteres"
                   value={newUser.password}
                   onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                  className="h-11 border-2 focus:border-emerald-500"
+                  className="h-11"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="rol" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Label htmlFor="rol" className="text-sm font-medium text-foreground flex items-center gap-2">
                   <Shield className="w-4 h-4" />
                   Rol *
                 </Label>
@@ -497,7 +494,7 @@ export default function UserManagementPage() {
                   value={newUser.rol}
                   onValueChange={(value) => setNewUser({ ...newUser, rol: value })}
                 >
-                  <SelectTrigger className="h-11 border-2 focus:border-emerald-500">
+                  <SelectTrigger className="h-11">
                     <SelectValue placeholder="Seleccionar rol" />
                   </SelectTrigger>
                   <SelectContent>
@@ -525,14 +522,14 @@ export default function UserManagementPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-3 text-sm text-red-700 bg-red-50 p-4 rounded-lg border-2 border-red-200">
+              <div className="flex items-center gap-3 text-sm text-destructive bg-destructive/8 p-4 rounded-lg border border-destructive/20">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                 {error}
               </div>
             )}
 
             {success && (
-              <div className="flex items-center gap-3 text-sm text-emerald-700 bg-emerald-50 p-4 rounded-lg border-2 border-emerald-200">
+              <div className="flex items-center gap-3 text-sm text-primary bg-primary/8 p-4 rounded-lg border border-primary/20">
                 <CheckCircle className="w-5 h-5 flex-shrink-0" />
                 {success}
               </div>
@@ -540,7 +537,7 @@ export default function UserManagementPage() {
 
             <Button 
               type="submit" 
-              className="w-full md:w-auto bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-lg"
+              className="w-full md:w-auto"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Crear Usuario
@@ -550,13 +547,13 @@ export default function UserManagementPage() {
       </Card>
 
       {/* Lista de Usuarios */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+      <Card className="border border-border">
+        <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-purple-600" />
-                <CardTitle className="text-lg">Usuarios Registrados</CardTitle>
+                <Users className="w-4 h-4 text-primary" />
+                <CardTitle className="text-base font-semibold text-foreground">Usuarios Registrados</CardTitle>
               </div>
               <CardDescription className="mt-1">
                 {users.length} {users.length === 1 ? 'usuario registrado' : 'usuarios registrados'}
@@ -571,8 +568,8 @@ export default function UserManagementPage() {
           {loading ? (
             <div className="flex items-center justify-center h-48">
               <div className="text-center space-y-3">
-                <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto" />
-                <p className="text-gray-500">Cargando usuarios...</p>
+                <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" />
+                <p className="text-muted-foreground text-sm">Cargando usuarios...</p>
               </div>
             </div>
           ) : users.length > 0 ? (
@@ -585,12 +582,12 @@ export default function UserManagementPage() {
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-48 space-y-3">
-              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                <Users className="w-8 h-8 text-gray-400" />
+              <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                <Users className="w-6 h-6 text-muted-foreground" />
               </div>
               <div className="text-center">
-                <p className="text-gray-900 font-medium">Sin usuarios</p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-foreground font-medium text-sm">Sin usuarios</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   No hay usuarios registrados en el sistema
                 </p>
               </div>

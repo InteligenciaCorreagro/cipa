@@ -163,19 +163,19 @@ export default function OperativeReportPage() {
     })
   }
 
-  // Columnas para Notas de Crédito
+  // Columnas para Notas de Credito
   const notasColumns = [
     {
       key: 'numero',
       label: 'Nota',
       render: (nota: NotaCredito) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-emerald-600" />
+          <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+            <FileText className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{nota.numero_nota}</p>
-            <p className="text-xs text-gray-500">{formatDate(nota.fecha_nota)}</p>
+            <p className="font-medium text-foreground">{nota.numero_nota}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(nota.fecha_nota)}</p>
           </div>
         </div>
       )
@@ -185,8 +185,8 @@ export default function OperativeReportPage() {
       label: 'Cliente',
       render: (nota: NotaCredito) => (
         <div>
-          <p className="font-medium text-gray-900 truncate max-w-[200px]">{nota.nombre_cliente}</p>
-          <p className="text-xs text-gray-500">{nota.nit_cliente}</p>
+          <p className="font-medium text-foreground truncate max-w-[200px]">{nota.nombre_cliente}</p>
+          <p className="text-xs text-muted-foreground">{nota.nit_cliente}</p>
         </div>
       )
     },
@@ -195,8 +195,8 @@ export default function OperativeReportPage() {
       label: 'Producto',
       render: (nota: NotaCredito) => (
         <div>
-          <p className="font-medium text-gray-900 truncate max-w-[200px]">{nota.nombre_producto}</p>
-          <p className="text-xs text-gray-500">{nota.codigo_producto}</p>
+          <p className="font-medium text-foreground truncate max-w-[200px]">{nota.nombre_producto}</p>
+          <p className="text-xs text-muted-foreground">{nota.codigo_producto}</p>
         </div>
       )
     },
@@ -206,8 +206,8 @@ export default function OperativeReportPage() {
       align: 'right' as const,
       render: (nota: NotaCredito) => (
         <div className="text-right">
-          <p className="font-bold text-gray-900">{formatCurrency(nota.valor_total)}</p>
-          <p className="text-xs text-gray-500">Cant: {nota.cantidad.toFixed(2)}</p>
+          <p className="font-medium text-foreground">{formatCurrency(nota.valor_total)}</p>
+          <p className="text-xs text-muted-foreground">Cant: {nota.cantidad.toFixed(2)}</p>
         </div>
       )
     },
@@ -217,8 +217,8 @@ export default function OperativeReportPage() {
       align: 'right' as const,
       render: (nota: NotaCredito) => (
         <div className="text-right">
-          <p className="font-bold text-orange-600">{formatCurrency(nota.saldo_pendiente)}</p>
-          <p className="text-xs text-gray-500">Pend: {nota.cantidad_pendiente.toFixed(2)}</p>
+          <p className="font-medium text-foreground">{formatCurrency(nota.saldo_pendiente)}</p>
+          <p className="text-xs text-muted-foreground">Pend: {nota.cantidad_pendiente.toFixed(2)}</p>
         </div>
       )
     },
@@ -243,12 +243,12 @@ export default function OperativeReportPage() {
       render: (app: Aplicacion) => (
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-emerald-600" />
-            <p className="font-semibold text-gray-900">{app.numero_nota}</p>
+            <FileText className="w-4 h-4 text-primary" />
+            <p className="font-medium text-foreground">{app.numero_nota}</p>
           </div>
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-blue-600" />
-            <p className="text-sm text-gray-600">{app.numero_factura}</p>
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{app.numero_factura}</p>
           </div>
         </div>
       )
@@ -258,8 +258,8 @@ export default function OperativeReportPage() {
       label: 'Cliente / Producto',
       render: (app: Aplicacion) => (
         <div className="space-y-1">
-          <p className="font-medium text-gray-900">{app.nit_cliente}</p>
-          <p className="text-xs text-gray-500">{app.codigo_producto}</p>
+          <p className="font-medium text-foreground">{app.nit_cliente}</p>
+          <p className="text-xs text-muted-foreground">{app.codigo_producto}</p>
         </div>
       )
     },
@@ -269,8 +269,8 @@ export default function OperativeReportPage() {
       align: 'right' as const,
       render: (app: Aplicacion) => (
         <div className="text-right">
-          <p className="font-bold text-emerald-600">{formatCurrency(app.valor_aplicado)}</p>
-          <p className="text-xs text-gray-500">Cant: {app.cantidad_aplicada.toFixed(2)}</p>
+          <p className="font-medium text-primary">{formatCurrency(app.valor_aplicado)}</p>
+          <p className="text-xs text-muted-foreground">Cant: {app.cantidad_aplicada.toFixed(2)}</p>
         </div>
       )
     },
@@ -279,8 +279,8 @@ export default function OperativeReportPage() {
       label: 'Fecha',
       render: (app: Aplicacion) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-700">{formatDateTime(app.fecha_aplicacion)}</span>
+          <Calendar className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-foreground">{formatDateTime(app.fecha_aplicacion)}</span>
         </div>
       )
     }
@@ -293,12 +293,12 @@ export default function OperativeReportPage() {
       label: 'Factura',
       render: (factura: FacturaRechazada) => (
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
-            <XCircle className="w-5 h-5 text-red-600" />
+          <div className="w-9 h-9 rounded-lg bg-destructive/8 flex items-center justify-center flex-shrink-0">
+            <XCircle className="w-4 h-4 text-destructive" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{factura.numero_factura}</p>
-            <p className="text-xs text-gray-500">{formatDate(factura.fecha_factura)}</p>
+            <p className="font-medium text-foreground">{factura.numero_factura}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(factura.fecha_factura)}</p>
           </div>
         </div>
       )
@@ -308,8 +308,8 @@ export default function OperativeReportPage() {
       label: 'Cliente',
       render: (factura: FacturaRechazada) => (
         <div>
-          <p className="font-medium text-gray-900 truncate max-w-[200px]">{factura.nombre_cliente}</p>
-          <p className="text-xs text-gray-500">{factura.nit_cliente}</p>
+          <p className="font-medium text-foreground truncate max-w-[200px]">{factura.nombre_cliente}</p>
+          <p className="text-xs text-muted-foreground">{factura.nit_cliente}</p>
         </div>
       )
     },
@@ -318,10 +318,10 @@ export default function OperativeReportPage() {
       label: 'Producto',
       render: (factura: FacturaRechazada) => (
         <div>
-          <p className="font-medium text-gray-900 truncate max-w-[200px]">{factura.producto}</p>
+          <p className="font-medium text-foreground truncate max-w-[200px]">{factura.producto}</p>
           <div className="flex items-center gap-2 mt-1">
-            <p className="text-xs text-gray-500">{factura.codigo_producto}</p>
-            <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
+            <p className="text-xs text-muted-foreground">{factura.codigo_producto}</p>
+            <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded">
               {factura.tipo_inventario}
             </span>
           </div>
@@ -333,16 +333,16 @@ export default function OperativeReportPage() {
       label: 'Valor',
       align: 'right' as const,
       render: (factura: FacturaRechazada) => (
-        <p className="font-bold text-gray-900">{formatCurrency(factura.valor_total)}</p>
+        <p className="font-medium text-foreground">{formatCurrency(factura.valor_total)}</p>
       )
     },
     {
       key: 'razon',
-      label: 'Razón de Rechazo',
+      label: 'Razon de Rechazo',
       render: (factura: FacturaRechazada) => (
         <div className="flex items-start gap-2 max-w-[300px]">
-          <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-          <p className="text-sm text-gray-600">{factura.razon_rechazo}</p>
+          <AlertCircle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-muted-foreground">{factura.razon_rechazo}</p>
         </div>
       )
     }
@@ -569,12 +569,12 @@ export default function OperativeReportPage() {
                 <TabsContent value="rechazadas" className="mt-6">
                   {data.facturas_rechazadas.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 space-y-3">
-                      <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-                        <CheckCircle className="w-8 h-8 text-emerald-400" />
+                      <div className="w-12 h-12 bg-primary/8 rounded-xl flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-primary" />
                       </div>
                       <div className="text-center">
-                        <p className="text-gray-900 font-medium">¡Excelente!</p>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-foreground font-medium text-sm">Sin rechazadas</p>
+                        <p className="text-xs text-muted-foreground mt-1">
                           No hay facturas rechazadas para esta fecha
                         </p>
                       </div>
@@ -594,56 +594,56 @@ export default function OperativeReportPage() {
           </Card>
 
           {/* Resumen General de Notas */}
-          <Card className="border-0 shadow-lg">
-            <CardHeader className="border-b bg-gradient-to-br from-gray-50 to-white">
+          <Card className="border border-border">
+            <CardHeader>
               <div className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-emerald-600" />
+                <TrendingUp className="w-4 h-4 text-primary" />
                 <div>
-                  <CardTitle className="text-lg">Resumen General de Notas de Crédito</CardTitle>
+                  <CardTitle className="text-base font-semibold text-foreground">Resumen General de Notas de Credito</CardTitle>
                   <CardDescription className="mt-1">Estado global del sistema</CardDescription>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="p-4 bg-gray-50 rounded-xl border-2 border-gray-200">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-gray-600" />
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                      <FileText className="w-4 h-4 text-primary" />
                     </div>
-                    <p className="text-sm font-medium text-gray-600">Total de Notas</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total de Notas</p>
                   </div>
-                  <p className="text-3xl font-bold text-gray-900">{data.resumen.resumen_notas.total}</p>
+                  <p className="text-2xl font-semibold text-foreground">{data.resumen.resumen_notas.total}</p>
                 </div>
                 
-                <div className="p-4 bg-orange-50 rounded-xl border-2 border-orange-200">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-orange-600" />
+                <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                      <Clock className="w-4 h-4 text-primary" />
                     </div>
-                    <p className="text-sm font-medium text-gray-600">Notas Pendientes</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Notas Pendientes</p>
                   </div>
-                  <p className="text-3xl font-bold text-orange-600">{data.resumen.resumen_notas.pendientes}</p>
+                  <p className="text-2xl font-semibold text-foreground">{data.resumen.resumen_notas.pendientes}</p>
                 </div>
                 
-                <div className="p-4 bg-emerald-50 rounded-xl border-2 border-emerald-200">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5 text-emerald-600" />
+                <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center">
+                      <CheckCircle className="w-4 h-4 text-primary" />
                     </div>
-                    <p className="text-sm font-medium text-gray-600">Notas Aplicadas</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Notas Aplicadas</p>
                   </div>
-                  <p className="text-3xl font-bold text-emerald-600">{data.resumen.resumen_notas.aplicadas}</p>
+                  <p className="text-2xl font-semibold text-primary">{data.resumen.resumen_notas.aplicadas}</p>
                 </div>
 
-                <div className="p-4 bg-red-50 rounded-xl border-2 border-red-200">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                      <AlertCircle className="w-5 h-5 text-red-600" />
+                <div className="p-4 bg-muted/50 rounded-xl border border-border">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-destructive/8 flex items-center justify-center">
+                      <AlertCircle className="w-4 h-4 text-destructive" />
                     </div>
-                    <p className="text-sm font-medium text-gray-600">No Aplicadas</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">No Aplicadas</p>
                   </div>
-                  <p className="text-3xl font-bold text-red-600">{data.resumen.resumen_notas.no_aplicadas}</p>
+                  <p className="text-2xl font-semibold text-foreground">{data.resumen.resumen_notas.no_aplicadas}</p>
                 </div>
               </div>
             </CardContent>
