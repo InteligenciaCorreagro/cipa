@@ -547,6 +547,30 @@ def listar_facturas():
             item = dict(row)
             item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
             item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            cursor.execute('''
+                SELECT numero_nota, valor_aplicado, fecha_aplicacion
+                FROM aplicaciones_notas
+                WHERE id_factura = ?
+                ORDER BY fecha_aplicacion DESC
+                LIMIT 1
+            ''', (item['id'],))
+            ultima_aplicacion = cursor.fetchone()
+            if ultima_aplicacion:
+                item['ultima_nota_aplicada'] = ultima_aplicacion['numero_nota']
+                item['monto_ultima_aplicacion'] = float(ultima_aplicacion['valor_aplicado'] or 0)
+                item['fecha_ultima_aplicacion'] = ultima_aplicacion['fecha_aplicacion']
+            else:
+                item['ultima_nota_aplicada'] = None
+                item['monto_ultima_aplicacion'] = 0.0
+                item['fecha_ultima_aplicacion'] = None
+
+            cursor.execute('''
+                SELECT COALESCE(SUM(valor_aplicado), 0) AS total_aplicado
+                FROM aplicaciones_notas
+                WHERE id_factura = ?
+            ''', (item['id'],))
+            total_aplicado_row = cursor.fetchone()
+            item['monto_total_aplicado'] = float(total_aplicado_row['total_aplicado']) if total_aplicado_row else 0.0
             facturas.append(item)
 
         query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
@@ -829,6 +853,112 @@ def listar_transacciones():
         return jsonify({"error": "Error al obtener transacciones"}), 500
 
 
+@app.route('/api/facturas/transado-mensual', methods=['GET'])
+@jwt_required()
+def transado_mensual_facturas():
+    try:
+        limite = int(request.args.get('limite', 12))
+        if limite <= 0:
+            limite = 12
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if conn.engine == 'mysql':
+            cursor.execute('''
+                SELECT DATE_FORMAT(fecha_factura, '%Y-%m') AS periodo,
+                       SUM(valor_total) AS valor_total,
+                       COUNT(*) AS total_facturas
+                FROM facturas
+                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
+                GROUP BY DATE_FORMAT(fecha_factura, '%Y-%m')
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+        else:
+            cursor.execute('''
+                SELECT SUBSTR(fecha_factura, 1, 7) AS periodo,
+                       SUM(valor_total) AS valor_total,
+                       COUNT(*) AS total_facturas
+                FROM facturas
+                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
+                GROUP BY SUBSTR(fecha_factura, 1, 7)
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        items = []
+        for row in reversed(rows):
+            periodo = str(row['periodo']) if row.get('periodo') else ''
+            items.append({
+                "periodo": periodo,
+                "valor_total": float(row['valor_total'] or 0),
+                "total_facturas": int(row['total_facturas'] or 0)
+            })
+
+        return jsonify({
+            "items": items,
+            "limite": limite
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en transado_mensual_facturas: {e}")
+        return jsonify({"error": "Error al obtener transado mensual"}), 500
+
+
+@app.route('/api/notas/aplicado-mensual', methods=['GET'])
+@jwt_required()
+def aplicado_mensual_notas():
+    try:
+        limite = int(request.args.get('limite', 12))
+        if limite <= 0:
+            limite = 12
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        if conn.engine == 'mysql':
+            cursor.execute('''
+                SELECT DATE_FORMAT(fecha_aplicacion, '%Y-%m') AS periodo,
+                       SUM(valor_aplicado) AS valor_aplicado,
+                       COUNT(*) AS total_aplicaciones
+                FROM aplicaciones_notas
+                GROUP BY DATE_FORMAT(fecha_aplicacion, '%Y-%m')
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+        else:
+            cursor.execute('''
+                SELECT SUBSTR(fecha_aplicacion, 1, 7) AS periodo,
+                       SUM(valor_aplicado) AS valor_aplicado,
+                       COUNT(*) AS total_aplicaciones
+                FROM aplicaciones_notas
+                GROUP BY SUBSTR(fecha_aplicacion, 1, 7)
+                ORDER BY periodo DESC
+                LIMIT ?
+            ''', (limite,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        items = []
+        for row in reversed(rows):
+            periodo = str(row['periodo']) if row.get('periodo') else ''
+            items.append({
+                "periodo": periodo,
+                "valor_aplicado": float(row['valor_aplicado'] or 0),
+                "total_aplicaciones": int(row['total_aplicaciones'] or 0)
+            })
+
+        return jsonify({
+            "items": items,
+            "limite": limite
+        }), 200
+    except Exception as e:
+        logger.error(f"Error en aplicado_mensual_notas: {e}")
+        return jsonify({"error": "Error al obtener aplicado mensual de notas"}), 500
+
+
 @app.route('/api/facturas/rechazadas', methods=['GET'])
 @jwt_required()
 def listar_facturas_rechazadas():
@@ -926,6 +1056,24 @@ def listar_notas():
             item = dict(row)
             item['nit_cliente'] = _decrypt_value(item.get('nit_encrypted'))
             item['nombre_cliente'] = _decrypt_value(item.get('nombre_cliente_encrypted'))
+            cursor.execute('''
+                SELECT numero_factura, valor_aplicado, fecha_aplicacion
+                FROM aplicaciones_notas
+                WHERE id_nota = ?
+                ORDER BY fecha_aplicacion DESC
+                LIMIT 1
+            ''', (item['id'],))
+            ultima_aplicacion = cursor.fetchone()
+            if ultima_aplicacion:
+                item['factura_aplicada'] = ultima_aplicacion['numero_factura']
+                item['monto_aplicado'] = float(ultima_aplicacion['valor_aplicado'] or 0)
+                item['fecha_ultima_aplicacion'] = ultima_aplicacion['fecha_aplicacion']
+            else:
+                item['factura_aplicada'] = None
+                item['monto_aplicado'] = 0.0
+                item['fecha_ultima_aplicacion'] = None
+
+            item['tipo_aplicacion'] = 'COMPLETA' if float(item.get('saldo_pendiente') or 0) <= 0 and item.get('estado') == 'APLICADA' else 'PARCIAL'
             notas.append(item)
 
         query_count = query.split('ORDER BY')[0].replace('SELECT *', 'SELECT COUNT(*)')
