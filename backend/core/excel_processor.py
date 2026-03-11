@@ -141,17 +141,18 @@ class ExcelProcessor:
         # Multiplicador de unidad base
         multiplicador = self._extraer_multiplicador_um_base(um_base)
 
-        # INTERCAMBIO: 
-        # - cantidad (columna E) = cantidad_base_api * multiplicador (lo que antes era cantidad_original)
-        # - cantidad_original (columna T) = cantidad_base_api (lo que antes era cantidad)
-        cantidad_convertida = float(cantidad_base_api) * multiplicador
-        cantidad_original = float(cantidad_base_api)
+        descuento_cantidad = float(factura.get('descuento_cantidad', 0.0) or 0.0)
+        cantidad_base_neta = max(float(cantidad_base_api) - descuento_cantidad, 0.0)
+        cantidad_convertida = cantidad_base_neta * multiplicador
+        cantidad_original = cantidad_base_neta
 
         # Valor total del API
         valor_total = factura.get('f_valor_subtotal_local', 0.0)
         if valor_total is None:
             valor_total = 0.0
         valor_total = float(valor_total)
+        descuento_valor = float(factura.get('descuento_valor', 0.0) or 0.0)
+        valor_total = max(valor_total - descuento_valor, 0.0)
 
         # Calcular precio unitario = valor_total / cantidad_convertida
         if cantidad_convertida != 0:
@@ -192,8 +193,8 @@ class ExcelProcessor:
             ).strip(),
             'condicion_pago': condicion_pago,  # Para debug/auditoría
             'indice_linea': factura.get('_indice_linea', 0),
-            'descuento_valor': float(factura.get('descuento_valor', 0.0) or 0.0),
-            'descuento_cantidad': float(factura.get('descuento_cantidad', 0.0) or 0.0),
+            'descuento_valor': descuento_valor,
+            'descuento_cantidad': descuento_cantidad,
             'nota_aplicada': str(factura.get('nota_aplicada', '') or '')
         }
     
