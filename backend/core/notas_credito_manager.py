@@ -658,24 +658,18 @@ class NotasCreditoManager:
                         if fm['indice_linea'] is not None:
                             cur.execute('''
                                 UPDATE facturas
-                                SET nota_aplicada=1, numero_nota_aplicada=%s,
-                                    descuento_cantidad=descuento_cantidad+%s,
-                                    descuento_valor=descuento_valor+%s,
-                                    cantidad_restante=%s, valor_restante=%s
+                                SET cantidad_restante=%s, valor_restante=%s
                                 WHERE numero_factura=%s AND codigo_producto=%s
-                                  AND indice_linea=%s AND fecha_proceso=%s
-                            ''', (nota['numero_nota'], cant_nota, val_nota, nc, nv,
+                                  AND indice_linea=%s AND fecha_factura=%s
+                            ''', (nc, nv,
                                   fm['numero_factura'], fm['codigo_producto'],
                                   fm['indice_linea'], fm['fecha_factura']))
                         else:
                             cur.execute('''
                                 UPDATE facturas
-                                SET nota_aplicada=1, numero_nota_aplicada=%s,
-                                    descuento_cantidad=descuento_cantidad+%s,
-                                    descuento_valor=descuento_valor+%s,
-                                    cantidad_restante=%s, valor_restante=%s
+                                SET cantidad_restante=%s, valor_restante=%s
                                 WHERE numero_factura=%s AND codigo_producto=%s
-                            ''', (nota['numero_nota'], cant_nota, val_nota, nc, nv,
+                            ''', (nc, nv,
                                   fm['numero_factura'], fm['codigo_producto']))
 
                         fm['cantidad_restante'] = nc
@@ -785,11 +779,11 @@ class NotasCreditoManager:
             cursor.execute('UPDATE notas_credito SET saldo_pendiente=0,cantidad_pendiente=0,estado="APLICADA",fecha_aplicacion_completa=%s WHERE id=%s',(datetime.now().isoformat(),nota['id']))
             nc=cf-cn; nv=vf-vn
             if il is not None:
-                cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_cantidad=descuento_cantidad+%s,descuento_valor=descuento_valor+%s,cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s AND indice_linea=%s AND fecha_proceso=%s',
-                    (nota['numero_nota'],cn,vn,nc,nv,nfn,cp,il,ff))
+                cursor.execute('UPDATE facturas SET cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s AND indice_linea=%s AND fecha_proceso=%s',
+                    (nc,nv,nfn,cp,il,ff))
             else:
-                cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_cantidad=descuento_cantidad+%s,descuento_valor=descuento_valor+%s,cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s',
-                    (nota['numero_nota'],cn,vn,nc,nv,nfn,cp))
+                cursor.execute('UPDATE facturas SET cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s',
+                    (nc,nv,nfn,cp))
             if own_conn: conn.commit()
             return {'numero_nota':nota['numero_nota'],'numero_factura':nfn,'cantidad_aplicada':cn,'valor_aplicado':vn,'cantidad_restante_factura':nc,'valor_restante_factura':nv,'estado_nota':'APLICADA'}
         except Exception as e:
@@ -857,7 +851,7 @@ class NotasCreditoManager:
     def actualizar_factura_con_nota(self, nf, cp, nn, va, ca):
         try:
             conn=self._get_conn(); cursor=conn.cursor()
-            cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_valor=descuento_valor+%s,descuento_cantidad=descuento_cantidad+%s WHERE numero_factura=%s AND codigo_producto=%s',
-                (nn,abs(va),abs(ca),nf,cp))
+            cursor.execute('UPDATE facturas SET cantidad_restante=cantidad_restante-%s,valor_restante=valor_restante-%s WHERE numero_factura=%s AND codigo_producto=%s',
+                (abs(ca),abs(va),nf,cp))
             conn.commit(); conn.close(); return True
         except Exception as e: logger.error(f"Error: {e}"); return False
