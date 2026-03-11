@@ -692,6 +692,7 @@ class NotasCreditoManager:
                             'numero_nota': nota['numero_nota'],
                             'numero_factura': fm['numero_factura'],
                             'codigo_producto': fm['codigo_producto'],
+                            'indice_linea': fm.get('indice_linea', 0),
                             'nombre_producto': fm['nombre_producto'],
                             'cantidad_aplicada': cant_nota,
                             'valor_aplicado': val_nota,
@@ -792,7 +793,7 @@ class NotasCreditoManager:
                 cursor.execute('UPDATE facturas SET cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s',
                     (nc,nv,nfn,cp))
             if own_conn: conn.commit()
-            return {'numero_nota':nota['numero_nota'],'numero_factura':nfn,'cantidad_aplicada':cn,'valor_aplicado':vn,'cantidad_restante_factura':nc,'valor_restante_factura':nv,'estado_nota':'APLICADA'}
+            return {'numero_nota':nota['numero_nota'],'numero_factura':nfn,'codigo_producto':cp,'indice_linea':il or 0,'cantidad_aplicada':cn,'valor_aplicado':vn,'cantidad_restante_factura':nc,'valor_restante_factura':nv,'estado_nota':'APLICADA'}
         except Exception as e:
             if own_conn: conn.rollback()
             logger.error(f"Error: {e}"); return None

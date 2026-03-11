@@ -255,10 +255,14 @@ def _enriquecer_facturas_con_notas(facturas: List[Dict], aplicaciones: List[Dict
     Enriquece las facturas en memoria con los datos de las notas aplicadas.
     Esto permite que el Excel refleje los descuentos sin re-leer de BD.
     """
-    # Indexar aplicaciones por (numero_factura, codigo_producto)
+    # Indexar aplicaciones por (numero_factura, codigo_producto, indice_linea)
     apps_por_factura = {}
     for app in aplicaciones:
-        key = (app['numero_factura'], app.get('codigo_producto', ''))
+        key = (
+            app['numero_factura'],
+            app.get('codigo_producto', ''),
+            int(app.get('indice_linea', 0) or 0)
+        )
         if key not in apps_por_factura:
             apps_por_factura[key] = {
                 'descuento_valor': 0.0,
@@ -283,8 +287,9 @@ def _enriquecer_facturas_con_notas(facturas: List[Dict], aplicaciones: List[Dict
             factura.get('f_cod_item')
             or factura.get('codigo_producto_api', '')
         ).strip()
+        indice_linea = int(factura.get('_indice_linea', factura.get('indice_linea', 0)) or 0)
 
-        key = (numero_factura, codigo)
+        key = (numero_factura, codigo, indice_linea)
         if key in apps_por_factura:
             app_data = apps_por_factura[key]
             factura['descuento_valor'] = app_data['descuento_valor']
