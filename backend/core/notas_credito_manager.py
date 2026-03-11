@@ -590,6 +590,7 @@ class NotasCreditoManager:
 
         # Paso 4: Aplicar notas
         aplicaciones = []
+        notas_ya_aplicadas = set()  # IDs de notas ya aplicadas en esta ejecución
         conn_a = self._get_conn()
         cur = conn_a.cursor()
 
@@ -602,6 +603,11 @@ class NotasCreditoManager:
                 logger.info(f"Par {key}: {len(notas_disp)} notas, {len(facs)} facturas")
 
                 for nota in notas_disp:
+                    # ══ VERIFICAR QUE NO SE HAYA APLICADO YA ══
+                    if nota['id'] in notas_ya_aplicadas:
+                        logger.debug(f"  Nota {nota['numero_nota']} (id={nota['id']}) ya aplicada, saltando")
+                        continue
+
                     # ══ FIX v3.4: abs() para valores negativos ══
                     cant_nota = abs(float(nota['cantidad_pendiente']))
                     val_nota = abs(float(nota['saldo_pendiente']))
@@ -680,6 +686,7 @@ class NotasCreditoManager:
 
                         nota['saldo_pendiente'] = 0
                         nota['cantidad_pendiente'] = 0
+                        notas_ya_aplicadas.add(nota['id'])
 
                         aplicaciones.append({
                             'numero_nota': nota['numero_nota'],
