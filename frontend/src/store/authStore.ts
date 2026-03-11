@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { User, LoginRequest } from '@/types'
-import { authApi, onAuthSessionExpired } from '@/services/api'
+import { authApi, onAuthSessionExpired, resetAuthSessionExpiryHandler } from '@/services/api'
 
 interface AuthState {
   user: User | null
@@ -37,6 +37,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.setItem('access_token', response.access_token)
       localStorage.setItem('refresh_token', response.refresh_token)
       localStorage.setItem('user', JSON.stringify(response.user))
+      resetAuthSessionExpiryHandler()
       set({ user: response.user, isAuthenticated: true, isLoading: false, requires2fa: false, sessionTransitioning: false, sessionMessage: null })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error al iniciar sesión'
@@ -73,7 +74,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   handleSessionExpired: async (reason?: string) => {
-    set({ sessionTransitioning: true, sessionMessage: reason || 'La sesión expiró, cerrando de forma segura...' })
+    const normalizedReason = (reason || '').toLowerCase()
+    const sessionMessage = normalizedReason.includes('revoked')
+      ? 'Su sesión fue cerrada por seguridad. Redirigiendo al inicio de sesión...'
+      : 'La sesión expiró, cerrando de forma segura...'
+    const loginNotice = normalizedReason.includes('revoked')
+      ? 'Su sesión expiró o fue revocada. Inicie sesión nuevamente.'
+      : 'Su sesión expiró. Inicie sesión nuevamente.'
+    set({ sessionTransitioning: true, sessionMessage })
     try {
       await authApi.logout()
     } catch {
@@ -83,11 +91,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('user')
       localStorage.setItem('logout_success', 'true')
+      localStorage.setItem('session_expired_message', loginNotice)
+      resetAuthSessionExpiryHandler()
       set({
         user: null,
         isAuthenticated: false,
         requires2fa: false,
-        error: 'Sesión finalizada por expiración del token',
+        error: loginNotice,
         sessionTransitioning: false,
         sessionMessage: null
       })

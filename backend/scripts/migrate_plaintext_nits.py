@@ -1,8 +1,15 @@
 import argparse
 import os
-import sqlite3
 import hashlib
 from cryptography.fernet import Fernet, InvalidToken
+from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+
+from db import get_mysql_config
+import mysql.connector as mc
 
 
 def _build_fernet():
@@ -36,7 +43,7 @@ def _hash_value(value: str, salt: str) -> str:
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
-def migrate_up(conn: sqlite3.Connection):
+def migrate_up(conn):
     fernet = _build_fernet()
     cursor = conn.cursor()
 
@@ -47,28 +54,35 @@ def migrate_up(conn: sqlite3.Connection):
             nit_plain = _decrypt_value(fernet, row[1])
             nombre_plain = _decrypt_value(fernet, row[2])
             cursor.execute(
-                f"UPDATE {table} SET nit_encrypted = ?, nombre_cliente_encrypted = ?, nit_hash = ? WHERE id = ?",
+                f"UPDATE {table} SET nit_encrypted = %s, nombre_cliente_encrypted = %s, nit_hash = %s WHERE id = %s",
                 (nit_plain, nombre_plain, nit_plain, row[0])
             )
 
     cursor.execute("SELECT id, nit_hash FROM aplicaciones_notas")
     for row in cursor.fetchall():
         nit_plain = _decrypt_value(fernet, row[1])
-        cursor.execute("UPDATE aplicaciones_notas SET nit_hash = ? WHERE id = ?", (nit_plain, row[0]))
+        cursor.execute("UPDATE aplicaciones_notas SET nit_hash = %s WHERE id = %s", (nit_plain, row[0]))
 
-    cursor.execute("DROP INDEX IF EXISTS idx_facturas_nit_hash")
-    cursor.execute("DROP INDEX IF EXISTS idx_rechazadas_nit_hash")
-    cursor.execute("DROP INDEX IF EXISTS idx_notas_cliente")
-    cursor.execute("DROP INDEX IF EXISTS idx_aplicaciones_nit_hash")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_facturas_nit ON facturas(nit_encrypted)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rechazadas_nit ON facturas_rechazadas(nit_encrypted)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notas_cliente ON notas_credito(nit_encrypted)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_aplicaciones_nit ON aplicaciones_notas(nit_hash)")
+    for index_name in ['idx_facturas_nit_hash', 'idx_rechazadas_nit_hash', 'idx_notas_cliente', 'idx_aplicaciones_nit_hash']:
+        try:
+            cursor.execute(f"DROP INDEX {index_name} ON {'notas_credito' if index_name == 'idx_notas_cliente' else ('aplicaciones_notas' if index_name == 'idx_aplicaciones_nit_hash' else ('facturas' if index_name == 'idx_facturas_nit_hash' else 'facturas_rechazadas'))}")
+        except Exception:
+            pass
+    for query in [
+        "CREATE INDEX idx_facturas_nit ON facturas(nit_encrypted)",
+        "CREATE INDEX idx_rechazadas_nit ON facturas_rechazadas(nit_encrypted)",
+        "CREATE INDEX idx_notas_cliente ON notas_credito(nit_encrypted)",
+        "CREATE INDEX idx_aplicaciones_nit ON aplicaciones_notas(nit_hash)",
+    ]:
+        try:
+            cursor.execute(query)
+        except Exception:
+            pass
 
     conn.commit()
 
 
-def migrate_down(conn: sqlite3.Connection):
+def migrate_down(conn):
     fernet = _build_fernet()
     salt = os.getenv('DATA_HASH_SALT', '')
     cursor = conn.cursor()
@@ -80,34 +94,40 @@ def migrate_down(conn: sqlite3.Connection):
             nombre_enc = _encrypt_value(fernet, row[2])
             nit_hash = _hash_value(row[1], salt)
             cursor.execute(
-                f"UPDATE {table} SET nit_encrypted = ?, nombre_cliente_encrypted = ?, nit_hash = ? WHERE id = ?",
+                f"UPDATE {table} SET nit_encrypted = %s, nombre_cliente_encrypted = %s, nit_hash = %s WHERE id = %s",
                 (nit_enc, nombre_enc, nit_hash, row[0])
             )
 
     cursor.execute("SELECT id, nit_hash FROM aplicaciones_notas")
     for row in cursor.fetchall():
         nit_enc = _encrypt_value(fernet, row[1])
-        cursor.execute("UPDATE aplicaciones_notas SET nit_hash = ? WHERE id = ?", (nit_enc, row[0]))
+        cursor.execute("UPDATE aplicaciones_notas SET nit_hash = %s WHERE id = %s", (nit_enc, row[0]))
 
-    cursor.execute("DROP INDEX IF EXISTS idx_facturas_nit")
-    cursor.execute("DROP INDEX IF EXISTS idx_rechazadas_nit")
-    cursor.execute("DROP INDEX IF EXISTS idx_notas_cliente")
-    cursor.execute("DROP INDEX IF EXISTS idx_aplicaciones_nit")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_facturas_nit_hash ON facturas(nit_hash)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rechazadas_nit_hash ON facturas_rechazadas(nit_hash)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notas_cliente ON notas_credito(nit_hash)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_aplicaciones_nit_hash ON aplicaciones_notas(nit_hash)")
+    for index_name in ['idx_facturas_nit', 'idx_rechazadas_nit', 'idx_notas_cliente', 'idx_aplicaciones_nit']:
+        try:
+            cursor.execute(f"DROP INDEX {index_name} ON {'notas_credito' if index_name == 'idx_notas_cliente' else ('aplicaciones_notas' if index_name == 'idx_aplicaciones_nit' else ('facturas' if index_name == 'idx_facturas_nit' else 'facturas_rechazadas'))}")
+        except Exception:
+            pass
+    for query in [
+        "CREATE INDEX idx_facturas_nit_hash ON facturas(nit_hash)",
+        "CREATE INDEX idx_rechazadas_nit_hash ON facturas_rechazadas(nit_hash)",
+        "CREATE INDEX idx_notas_cliente ON notas_credito(nit_hash)",
+        "CREATE INDEX idx_aplicaciones_nit_hash ON aplicaciones_notas(nit_hash)",
+    ]:
+        try:
+            cursor.execute(query)
+        except Exception:
+            pass
 
     conn.commit()
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--db-path', default='./data/notas_credito.db')
     parser.add_argument('--direction', choices=['up', 'down'], default='up')
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db_path)
+    conn = mc.connect(**get_mysql_config())
     try:
         if args.direction == 'up':
             migrate_up(conn)

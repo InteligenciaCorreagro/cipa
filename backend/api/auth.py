@@ -13,12 +13,11 @@ import os
 import bcrypt
 import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional, Dict, Tuple
 try:
-    from db import get_connection, get_engine, get_sqlite_path
+    from db import get_connection
 except ImportError:
-    from backend.db import get_connection, get_engine, get_sqlite_path
+    from backend.db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +26,8 @@ class AuthManager:
     """Gestiona autenticación y autorización"""
 
     def __init__(self, db_path: Optional[str] = None):
-        if get_engine() == 'mysql':
-            self.db_path = None
-            logger.info("AuthManager usando base de datos: MySQL")
-        else:
-            if db_path is None:
-                project_root = Path(__file__).parent.parent.parent
-                db_path = get_sqlite_path(str(project_root / 'data' / 'notas_credito.db'))
-            self.db_path = db_path
-            logger.info(f"AuthManager usando base de datos: {db_path}")
+        self.db_path = None
+        logger.info("AuthManager usando base de datos: MySQL")
         self._inicializar_tablas()
 
     def _inicializar_tablas(self):
@@ -43,126 +35,67 @@ class AuthManager:
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
 
-        if get_engine(self.db_path) == 'mysql':
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(100) NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    email VARCHAR(255),
-                    rol VARCHAR(20) DEFAULT 'viewer',
-                    activo INT DEFAULT 1,
-                    intentos_fallidos INT DEFAULT 0,
-                    bloqueado_hasta TIMESTAMP NULL,
-                    ultimo_acceso TIMESTAMP NULL,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                email VARCHAR(255),
+                rol VARCHAR(20) DEFAULT 'viewer',
+                activo INT DEFAULT 1,
+                intentos_fallidos INT DEFAULT 0,
+                bloqueado_hasta TIMESTAMP NULL,
+                ultimo_acceso TIMESTAMP NULL,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
 
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS sesiones (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    token_jti VARCHAR(255) NOT NULL UNIQUE,
-                    refresh_jti VARCHAR(255) UNIQUE,
-                    ip_address VARCHAR(100),
-                    user_agent TEXT,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    fecha_expiracion TIMESTAMP NULL,
-                    activa INT DEFAULT 1,
-                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sesiones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token_jti VARCHAR(255) NOT NULL UNIQUE,
+                refresh_jti VARCHAR(255) UNIQUE,
+                ip_address VARCHAR(100),
+                user_agent TEXT,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                fecha_expiracion TIMESTAMP NULL,
+                activa INT DEFAULT 1,
+                FOREIGN KEY (user_id) REFERENCES usuarios(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
 
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS intentos_login (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(100) NOT NULL,
-                    ip_address VARCHAR(100),
-                    exitoso INT NOT NULL,
-                    razon_fallo TEXT,
-                    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS intentos_login (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) NOT NULL,
+                ip_address VARCHAR(100),
+                exitoso INT NOT NULL,
+                razon_fallo TEXT,
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
 
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS usuarios_2fa (
-                    user_id INT PRIMARY KEY,
-                    secreto VARCHAR(255) NOT NULL,
-                    habilitado INT DEFAULT 0,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            ''')
-        else:
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    email TEXT,
-                    rol TEXT DEFAULT 'viewer',
-                    activo INTEGER DEFAULT 1,
-                    intentos_fallidos INTEGER DEFAULT 0,
-                    bloqueado_hasta TIMESTAMP NULL,
-                    ultimo_acceso TIMESTAMP NULL,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios_2fa (
+                user_id INT PRIMARY KEY,
+                secreto VARCHAR(255) NOT NULL,
+                habilitado INT DEFAULT 0,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES usuarios(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
 
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS sesiones (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    token_jti TEXT NOT NULL UNIQUE,
-                    refresh_jti TEXT UNIQUE,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    fecha_expiracion TIMESTAMP NOT NULL,
-                    activa INTEGER DEFAULT 1,
-                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
-                )
-            ''')
-
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS intentos_login (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL,
-                    ip_address TEXT,
-                    exitoso INTEGER NOT NULL,
-                    razon_fallo TEXT,
-                    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS usuarios_2fa (
-                    user_id INTEGER PRIMARY KEY,
-                    secreto TEXT NOT NULL,
-                    habilitado INTEGER DEFAULT 0,
-                    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES usuarios(id)
-                )
-            ''')
-
-        if get_engine(self.db_path) == 'mysql':
-            def _create_index(name: str, table: str, columns: str):
-                try:
-                    cursor.execute(f"CREATE INDEX {name} ON {table}({columns})")
-                except Exception:
-                    pass
-            _create_index('idx_sesiones_user', 'sesiones', 'user_id')
-            _create_index('idx_sesiones_jti', 'sesiones', 'token_jti')
-            _create_index('idx_intentos_ip', 'intentos_login', 'ip_address, fecha')
-            _create_index('idx_intentos_user', 'intentos_login', 'username, fecha')
-        else:
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_user ON sesiones(user_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sesiones_jti ON sesiones(token_jti)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_ip ON intentos_login(ip_address, fecha)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_intentos_user ON intentos_login(username, fecha)')
+        def _create_index(name: str, table: str, columns: str):
+            try:
+                cursor.execute(f"CREATE INDEX {name} ON {table}({columns})")
+            except Exception:
+                pass
+        _create_index('idx_sesiones_user', 'sesiones', 'user_id')
+        _create_index('idx_sesiones_jti', 'sesiones', 'token_jti')
+        _create_index('idx_intentos_ip', 'intentos_login', 'ip_address, fecha')
+        _create_index('idx_intentos_user', 'intentos_login', 'username, fecha')
 
         # Crear usuario admin por defecto si no existe
         cursor.execute('SELECT COUNT(*) FROM usuarios WHERE username = ?', ('admin',))

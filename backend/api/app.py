@@ -33,9 +33,9 @@ sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(API_DIR))
 
 try:
-    from db import get_connection, get_engine, get_sqlite_path
+    from db import get_connection
 except ImportError:
-    from backend.db import get_connection, get_engine, get_sqlite_path
+    from backend.db import get_connection
 
 # Imports locales
 try:
@@ -91,8 +91,7 @@ except Exception:
 
 auth_manager = AuthManager()
 
-PROJECT_ROOT = BACKEND_DIR.parent
-DB_PATH = Path(get_sqlite_path(str(PROJECT_ROOT / 'data' / 'notas_credito.db')))
+PROJECT_ROOT = BACKEND_DIR
 notas_manager = NotasCreditoManager()
 
 _cache_store = {}
@@ -844,29 +843,16 @@ def transado_mensual_facturas():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        if conn.engine == 'mysql':
-            cursor.execute('''
-                SELECT DATE_FORMAT(fecha_factura, '%Y-%m') AS periodo,
-                       SUM(valor_total) AS valor_total,
-                       COUNT(*) AS total_facturas
-                FROM facturas
-                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
-                GROUP BY DATE_FORMAT(fecha_factura, '%Y-%m')
-                ORDER BY periodo DESC
-                LIMIT ?
-            ''', (limite,))
-        else:
-            cursor.execute('''
-                SELECT SUBSTR(fecha_factura, 1, 7) AS periodo,
-                       SUM(valor_total) AS valor_total,
-                       COUNT(*) AS total_facturas
-                FROM facturas
-                WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
-                GROUP BY SUBSTR(fecha_factura, 1, 7)
-                ORDER BY periodo DESC
-                LIMIT ?
-            ''', (limite,))
+        cursor.execute('''
+            SELECT DATE_FORMAT(fecha_factura, '%Y-%m') AS periodo,
+                   SUM(valor_total) AS valor_total,
+                   COUNT(*) AS total_facturas
+            FROM facturas
+            WHERE registrable = 1 AND (estado = 'ACTIVA' OR estado IS NULL)
+            GROUP BY DATE_FORMAT(fecha_factura, '%Y-%m')
+            ORDER BY periodo DESC
+            LIMIT ?
+        ''', (limite,))
 
         rows = cursor.fetchall()
         conn.close()
@@ -899,27 +885,15 @@ def aplicado_mensual_notas():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        if conn.engine == 'mysql':
-            cursor.execute('''
-                SELECT DATE_FORMAT(fecha_aplicacion, '%Y-%m') AS periodo,
-                       SUM(valor_aplicado) AS valor_aplicado,
-                       COUNT(*) AS total_aplicaciones
-                FROM aplicaciones_notas
-                GROUP BY DATE_FORMAT(fecha_aplicacion, '%Y-%m')
-                ORDER BY periodo DESC
-                LIMIT ?
-            ''', (limite,))
-        else:
-            cursor.execute('''
-                SELECT SUBSTR(fecha_aplicacion, 1, 7) AS periodo,
-                       SUM(valor_aplicado) AS valor_aplicado,
-                       COUNT(*) AS total_aplicaciones
-                FROM aplicaciones_notas
-                GROUP BY SUBSTR(fecha_aplicacion, 1, 7)
-                ORDER BY periodo DESC
-                LIMIT ?
-            ''', (limite,))
+        cursor.execute('''
+            SELECT DATE_FORMAT(fecha_aplicacion, '%Y-%m') AS periodo,
+                   SUM(valor_aplicado) AS valor_aplicado,
+                   COUNT(*) AS total_aplicaciones
+            FROM aplicaciones_notas
+            GROUP BY DATE_FORMAT(fecha_aplicacion, '%Y-%m')
+            ORDER BY periodo DESC
+            LIMIT ?
+        ''', (limite,))
 
         rows = cursor.fetchall()
         conn.close()
@@ -2371,37 +2345,87 @@ def exportar_pdf_bd():
 @app.route('/api/admin/descargar/<filename>', methods=['GET'])
 @jwt_required()
 def descargar_archivo(filename):
-    """Descarga un archivo generado"""
+    """
+    Descarga un archivo Excel/PDF generado por el procesamiento.
+    
+    Busca en múltiples directorios posibles:
+      1. ./output/
+      2. PROJECT_ROOT/output/
+    
+    Response:
+      - 200: Archivo binario con Content-Disposition: attachment
+      - 400: Nombre de archivo inválido (path traversal)
+      - 404: Archivo no encontrado
+    """
     try:
         from flask import send_file
 
-        # Validar nombre de archivo (seguridad)
-        if '..' in filename or '/' in filename:
+        # Validar seguridad del nombre de archivo (prevenir path traversal)
+        if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify({"error": "Nombre de archivo inválido"}), 400
 
-        output_dir = PROJECT_ROOT / 'output'
-        file_path = output_dir / filename
+        # Buscar en directorios posibles
+        posibles_rutas = [
+            os.path.join('.', 'output', filename),
+            str(PROJECT_ROOT / 'output' / filename),
+        ]
 
-        if not file_path.exists():
-            return jsonify({"error": "Archivo no encontrado"}), 404
+        for ruta in posibles_rutas:
+            ruta_abs = os.path.abspath(ruta)
+            if os.path.exists(ruta_abs) and os.path.isfile(ruta_abs):
+                # Determinar mimetype según extensión
+                mimetypes = {
+                    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    '.pdf': 'application/pdf',
+                    '.txt': 'text/plain',
+                    '.csv': 'text/csv',
+                }
+                ext = os.path.splitext(filename)[1].lower()
+                mimetype = mimetypes.get(ext, 'application/octet-stream')
 
-        return send_file(
-            str(file_path),
-            as_attachment=True,
-            download_name=filename
-        )
+                logger.info(f"Descargando archivo: {ruta_abs} ({mimetype})")
+
+                return send_file(
+                    ruta_abs,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype=mimetype
+                )
+
+        return jsonify({
+            "error": f"Archivo no encontrado: {filename}",
+            "rutas_buscadas": [os.path.abspath(r) for r in posibles_rutas]
+        }), 404
 
     except Exception as e:
         logger.error(f"Error al descargar archivo: {e}")
         return jsonify({"error": "Error al descargar archivo"}), 500
 
-
 @app.route('/api/admin/procesar-rango', methods=['POST'])
 @jwt_required()
 def procesar_rango():
     """
-    Procesa un rango de fechas desde la API externa y guarda en BD
-    Solo para admins - Proceso largo
+    Procesa un rango de fechas desde la API SIESA, guarda en BD y genera Excel.
+    
+    SÍNCRONO - ahora es rápido (~5-15s) gracias a las optimizaciones batch.
+    
+    Request body:
+        {
+            "fecha_desde": "2026-02-27",
+            "fecha_hasta": "2026-03-02"
+        }
+    
+    Response exitosa (200):
+        {
+            "exito": true,
+            "archivo_generado": "facturas_rango_20260227_20260302.xlsx",
+            "url_descarga": "/api/admin/descargar/facturas_rango_20260227_20260302.xlsx",
+            "total_facturas_procesadas": 1501,
+            "total_notas_credito": 25,
+            "total_facturas_rechazadas": 1166,
+            "total_aplicaciones": 3,
+            "tiempo_total_segundos": 8.2
+        }
     """
     try:
         claims = get_jwt()
@@ -2413,17 +2437,16 @@ def procesar_rango():
         fecha_hasta_str = data.get('fecha_hasta')
 
         if not fecha_desde_str or not fecha_hasta_str:
-            return jsonify({"error": "Fechas requeridas"}), 400
+            return jsonify({"error": "Fechas requeridas (fecha_desde, fecha_hasta)"}), 400
 
         fecha_desde = datetime.strptime(fecha_desde_str, '%Y-%m-%d')
         fecha_hasta = datetime.strptime(fecha_hasta_str, '%Y-%m-%d')
 
-        # Validar rango máximo 90 días
+        # Validaciones
         diff_days = (fecha_hasta - fecha_desde).days
         if diff_days > 90:
             return jsonify({"error": "Rango máximo permitido: 90 días"}), 400
-
-        if fecha_desde > fecha_hasta:
+        if diff_days < 0:
             return jsonify({"error": "Fecha desde debe ser anterior a fecha hasta"}), 400
 
         config = {
@@ -2435,11 +2458,26 @@ def procesar_rango():
         if not config['CONNI_KEY'] or not config['CONNI_TOKEN']:
             return jsonify({"error": "Credenciales API no configuradas"}), 500
 
+        # ── Ejecutar proceso síncrono ──
         sys.path.insert(0, str(BACKEND_DIR))
         from main import procesar_rango_fechas
+
         resultado = procesar_rango_fechas(fecha_desde, fecha_hasta, config)
-        total_dias = max((fecha_hasta - fecha_desde).days + 1, 1)
-        resultado['estimado_segundos'] = _calcular_estimado_segundos(total_dias)
+
+        # Agregar URL de descarga al resultado
+        archivo = resultado.get('archivo_generado')
+        if archivo:
+            resultado['url_descarga'] = f"/api/admin/descargar/{archivo}"
+
+        # Log de auditoría
+        usuario = claims.get('username')
+        registrar_log('procesar_rango', 'ejecutar',
+                      f"{fecha_desde_str}:{fecha_hasta_str}", usuario, {
+                          'total_facturas': resultado.get('total_facturas_procesadas', 0),
+                          'tiempo_segundos': resultado.get('tiempo_total_segundos', 0),
+                          'archivo': archivo
+                      })
+
         return jsonify(resultado), 200
 
     except Exception as e:
@@ -2563,9 +2601,5 @@ if __name__ == '__main__':
     port = int(os.getenv('API_PORT', 2500))
     debug_mode = str(os.getenv('FLASK_DEBUG', '0')).lower() in ('1', 'true', 'yes')
     logger.info(f"Iniciando API en puerto {port}")
-    engine = get_engine()
-    if engine == 'mysql':
-        logger.info("Base de datos: MySQL")
-    else:
-        logger.info(f"Base de datos: {DB_PATH}")
+    logger.info("Base de datos: MySQL")
     app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=debug_mode)

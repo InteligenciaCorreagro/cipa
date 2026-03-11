@@ -29,6 +29,15 @@ let onSessionExpiredCallback: ((message?: string) => void) | null = null
 export const onAuthSessionExpired = (callback: (message?: string) => void) => {
   onSessionExpiredCallback = callback
 }
+let sessionExpiryHandled = false
+export const resetAuthSessionExpiryHandler = () => {
+  sessionExpiryHandled = false
+}
+
+const extractAuthErrorMessage = (error: AxiosError<ApiError>) => {
+  const data = error.response?.data as (ApiError & { msg?: string }) | undefined
+  return data?.msg || data?.message || data?.error || 'Token expirado'
+}
 
 // Interceptor para agregar el token a las peticiones
 api.interceptors.request.use(
@@ -51,10 +60,14 @@ api.interceptors.response.use(
     // Solo intentar refresh si es un error 401 Y tenemos tokens
     if (error.response?.status === 401 && originalRequest) {
       const refreshToken = localStorage.getItem('refresh_token')
+      const authMessage = extractAuthErrorMessage(error)
 
       // Si no hay refresh token, no intentar refresh
       if (!refreshToken) {
-        onSessionExpiredCallback?.(error.response?.data?.message || 'Token expirado')
+        if (!sessionExpiryHandled) {
+          sessionExpiryHandled = true
+          onSessionExpiredCallback?.(authMessage)
+        }
         return Promise.reject(error)
       }
 
@@ -63,7 +76,10 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
-        onSessionExpiredCallback?.('Token expirado')
+        if (!sessionExpiryHandled) {
+          sessionExpiryHandled = true
+          onSessionExpiredCallback?.(authMessage)
+        }
         return Promise.reject(error)
       }
 
@@ -86,7 +102,12 @@ api.interceptors.response.use(
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user')
-        onSessionExpiredCallback?.('Token expirado')
+        const refreshAxiosError = refreshError as AxiosError<ApiError>
+        const refreshMessage = extractAuthErrorMessage(refreshAxiosError)
+        if (!sessionExpiryHandled) {
+          sessionExpiryHandled = true
+          onSessionExpiredCallback?.(refreshMessage)
+        }
         return Promise.reject(refreshError)
       }
     }

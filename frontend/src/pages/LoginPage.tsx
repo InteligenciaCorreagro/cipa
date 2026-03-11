@@ -14,12 +14,21 @@ export default function LoginPage() {
   const [otp, setOtp] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({})
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null)
   
   const { login, isLoading, error, requires2fa } = useAuthStore()
   const navigate = useNavigate()
 
   useEffect(() => {
+    const sessionExpiredMessage = localStorage.getItem('session_expired_message')
+    if (sessionExpiredMessage) {
+      setLogoutNotice(sessionExpiredMessage)
+      localStorage.removeItem('session_expired_message')
+      localStorage.removeItem('logout_success')
+      return
+    }
     if (localStorage.getItem('logout_success')) {
+      setLogoutNotice('Sesion cerrada correctamente')
       localStorage.removeItem('logout_success')
     }
   }, [])
@@ -72,10 +81,10 @@ export default function LoginPage() {
 
         {/* Form Card */}
         <div className="bg-card rounded-2xl border border-border p-8 shadow-sm">
-          {localStorage.getItem('logout_success') && (
+          {logoutNotice && (
             <div className="mb-4 text-sm text-primary bg-secondary px-4 py-3 rounded-lg border border-border flex items-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              Sesion cerrada correctamente
+              {logoutNotice}
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-5">

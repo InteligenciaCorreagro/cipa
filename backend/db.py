@@ -1,5 +1,4 @@
 import os
-import sqlite3
 from typing import Optional, Any, Iterable
 from pathlib import Path
 from dotenv import load_dotenv
@@ -90,13 +89,7 @@ class DBConnection:
 
 
 def get_engine(db_path: Optional[str] = None) -> str:
-    if db_path:
-        return 'sqlite'
-    return os.getenv('DB_ENGINE', 'sqlite').lower()
-
-
-def get_sqlite_path(default_path: str) -> str:
-    return os.getenv('DB_PATH', default_path)
+    return 'mysql'
 
 
 def get_mysql_config():
@@ -125,28 +118,22 @@ def get_mysql_config():
     }
 
 
-def get_connection(db_path: Optional[str] = None, default_sqlite_path: str = './data/notas_credito.db') -> DBConnection:
-    engine = get_engine(db_path)
-    if engine == 'mysql' and db_path is None:
-        if mysql is None:
-            raise RuntimeError('mysql-connector-python no instalado')
-        config = get_mysql_config()
-        try:
+def get_connection(db_path: Optional[str] = None) -> DBConnection:
+    if mysql is None:
+        raise RuntimeError('mysql-connector-python no instalado')
+    config = get_mysql_config()
+    try:
+        conn = mysql.connector.connect(**config)
+        return DBConnection(conn, 'mysql')
+    except Exception as e:
+        error_code = getattr(e, 'errno', None)
+        if error_code == 1049:
+            base_config = {k: v for k, v in config.items() if k != 'database'}
+            conn = mysql.connector.connect(**base_config)
+            cursor = conn.cursor()
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {config['database']}")
+            conn.commit()
+            conn.close()
             conn = mysql.connector.connect(**config)
-            return DBConnection(conn, engine)
-        except Exception as e:
-            error_code = getattr(e, 'errno', None)
-            if error_code == 1049:
-                base_config = {k: v for k, v in config.items() if k != 'database'}
-                conn = mysql.connector.connect(**base_config)
-                cursor = conn.cursor()
-                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {config['database']}")
-                conn.commit()
-                conn.close()
-                conn = mysql.connector.connect(**config)
-                return DBConnection(conn, engine)
-            raise
-    sqlite_path = db_path or get_sqlite_path(default_sqlite_path)
-    conn = sqlite3.connect(sqlite_path)
-    conn.row_factory = sqlite3.Row
-    return DBConnection(conn, 'sqlite')
+            return DBConnection(conn, 'mysql')
+        raise
