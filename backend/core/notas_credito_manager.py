@@ -630,12 +630,20 @@ class NotasCreditoManager:
                         # ═══ APLICAR COMPLETA ═══
                         cur.execute('''
                             INSERT INTO aplicaciones_notas
-                            (id_nota,id_factura,numero_nota,numero_factura,numero_linea,fecha_factura,
-                             nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ''', (nota['id'], fm.get('id_factura') or 0, nota['numero_nota'], fm['numero_factura'],
-                              fm['numero_factura'], fm['fecha_factura'], nota['nit_cliente'],
-                              fm['codigo_producto'], cant_nota, val_nota))
+                            (id_nota, id_factura, numero_nota, numero_factura, numero_linea,
+                             fecha_factura, nit_hash, nit_cliente, codigo_producto,
+                             cantidad_aplicada, valor_aplicado,
+                             cantidad_factura_antes, cantidad_factura_despues,
+                             valor_factura_antes, valor_factura_despues)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ''', (nota['id'], fm.get('id_factura') or 0,
+                              nota['numero_nota'], fm['numero_factura'],
+                              fm['numero_factura'], fm['fecha_factura'],
+                              nota['nit_cliente'], nota['nit_cliente'],
+                              fm['codigo_producto'],
+                              cant_nota, val_nota,
+                              cr, cr - cant_nota,
+                              vr, vr - val_nota))
 
                         cur.execute('''
                             UPDATE notas_credito
@@ -764,8 +772,16 @@ class NotasCreditoManager:
                 cursor.execute('SELECT id FROM facturas WHERE numero_factura=%s AND codigo_producto=%s LIMIT 1', (nfn, cp))
                 row = cursor.fetchone()
                 id_factura = (row[0] if row and not isinstance(row, dict) else row.get('id', 0) if row else 0)
-            cursor.execute('INSERT INTO aplicaciones_notas (id_nota,id_factura,numero_nota,numero_factura,numero_linea,fecha_factura,nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                (nota['id'],id_factura,nota['numero_nota'],nfn,nfn,ff,nota['nit_cliente'],cp,cn,vn))
+            cursor.execute('''INSERT INTO aplicaciones_notas 
+                (id_nota, id_factura, numero_nota, numero_factura, numero_linea,
+                 fecha_factura, nit_hash, nit_cliente, codigo_producto,
+                 cantidad_aplicada, valor_aplicado,
+                 cantidad_factura_antes, cantidad_factura_despues,
+                 valor_factura_antes, valor_factura_despues)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (nota['id'], id_factura, nota['numero_nota'], nfn, nfn, ff,
+                 nota['nit_cliente'], nota['nit_cliente'], cp,
+                 cn, vn, cf, cf - cn, vf, vf - vn))
             cursor.execute('UPDATE notas_credito SET saldo_pendiente=0,cantidad_pendiente=0,estado="APLICADA",fecha_aplicacion_completa=%s WHERE id=%s',(datetime.now().isoformat(),nota['id']))
             nc=cf-cn; nv=vf-vn
             if il is not None:
