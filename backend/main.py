@@ -282,16 +282,37 @@ def _enriquecer_facturas_con_notas(facturas: List[Dict], aplicaciones: List[Dict
     for factura in facturas:
         prefijo = str(factura.get('f_prefijo', '')).strip()
         nrodocto = str(factura.get('f_nrodocto', '')).strip()
-        numero_factura = f"{prefijo}{nrodocto}"
-        codigo = str(
-            factura.get('f_cod_item')
-            or factura.get('codigo_producto_api', '')
-        ).strip()
+        numero_prefijo = f"{prefijo}{nrodocto}"
+        numero_directo = str(factura.get('numero_factura', '')).strip()
         indice_linea = int(factura.get('_indice_linea', factura.get('indice_linea', 0)) or 0)
 
-        key = (numero_factura, codigo, indice_linea)
-        if key in apps_por_factura:
-            app_data = apps_por_factura[key]
+        numeros = []
+        if numero_prefijo:
+            numeros.append(numero_prefijo)
+        if numero_directo and numero_directo not in numeros:
+            numeros.append(numero_directo)
+
+        codigos = []
+        for c in (
+            factura.get('f_cod_item'),
+            factura.get('codigo_producto_api'),
+            factura.get('codigo_producto')
+        ):
+            cs = str(c or '').strip()
+            if cs and cs not in codigos:
+                codigos.append(cs)
+
+        app_data = None
+        for nf in numeros:
+            for cp in codigos:
+                key = (nf, cp, indice_linea)
+                if key in apps_por_factura:
+                    app_data = apps_por_factura[key]
+                    break
+            if app_data:
+                break
+
+        if app_data:
             factura['descuento_valor'] = app_data['descuento_valor']
             factura['descuento_cantidad'] = app_data['descuento_cantidad']
             factura['nota_aplicada'] = app_data['nota_aplicada']
