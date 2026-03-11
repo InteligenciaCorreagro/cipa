@@ -1,26 +1,23 @@
 """
-Módulo de Gestión de Notas Crédito - VERSIÓN OPTIMIZADA v3.3
+Módulo de Gestión de Notas Crédito - VERSIÓN OPTIMIZADA v3.4
 
-FIX v3.3 - Funciona con AMBOS formatos de factura:
+FIX CRÍTICO v3.4:
 ───────────────────────────────────────────────────────────────
-FORMATO CRUDO (API):          FORMATO TRANSFORMADO (excel_processor):
-  f_cliente_desp                nit_comprador
-  f_desc_item                   nombre_producto
-  f_cod_item                    codigo_producto_api
-  f_cant_base                   cantidad_original (base)
-  f_valor_subtotal_local        valor_total
-  f_prefijo + f_nrodocto        numero_factura
+PROBLEMA: Los valores de notas crédito vienen NEGATIVOS desde SIESA:
+  cantidad = -425, valor_total = -29,388,750
+  saldo_pendiente = -29,388,750, cantidad_pendiente = -425
+
+  La query "WHERE saldo_pendiente > 0" NUNCA las encuentra.
+
+SOLUCIÓN: 
+  - SQL: WHERE ABS(saldo_pendiente) > 0  (o saldo_pendiente != 0)
+  - Python: abs() en TODAS las comparaciones de cantidad y valor
+───────────────────────────────────────────────────────────────
 
 MATCH: NIT + NOMBRE_PRODUCTO (normalizado UPPER + STRIP)
-  - La nota tiene nombre en nombre_producto O en codigo_producto
-  - La factura tiene nombre en nombre_producto O f_desc_item O producto
-  - Helper _extraer_nombre_producto() busca en todos los campos posibles
-
-CANTIDADES: Se usa cantidad_original / f_cant_base (BASE, sin convertir)
-  - La nota tiene f_cant_base = 425
-  - La factura transformada tiene cantidad_original = 425
-  - NO usar 'cantidad' (que es la convertida: 17000)
-───────────────────────────────────────────────────────────────
+CANTIDADES: cantidad_original / f_cant_base (BASE, sin convertir)
+NOTA: Se aplica COMPLETA o no se aplica. NUNCA se divide.
+FACTURA: Puede recibir múltiples notas (saldo se reduce).
 """
 import logging
 from typing import List, Dict, Optional, Tuple
@@ -33,7 +30,6 @@ except ImportError:
     from backend.db import get_connection
 
 logger = logging.getLogger(__name__)
-
 _schema_initialized = False
 
 
@@ -45,85 +41,69 @@ class NotasCreditoManager:
             self._crear_base_datos()
             _schema_initialized = True
             logger.info("NotasCreditoManager: Schema inicializado")
-        else:
-            logger.debug("NotasCreditoManager: Schema ya inicializado")
 
     def _get_conn(self):
         return get_connection()
 
     # ═════════════════════════════════════════════════════════════
-    # HELPERS PARA EXTRAER CAMPOS (crudo o transformado)
+    # HELPERS - extraen campos de ambos formatos (crudo / transformado)
     # ═════════════════════════════════════════════════════════════
 
     @staticmethod
     def _extraer_nit(factura: Dict) -> str:
-        """Extrae NIT del comprador, funciona con ambos formatos"""
         return str(
-            factura.get('nit_comprador')       # transformado
-            or factura.get('f_cliente_desp')    # crudo API
-            or factura.get('nit_cliente')       # desde BD
+            factura.get('nit_comprador')
+            or factura.get('f_cliente_desp')
+            or factura.get('nit_cliente')
             or ''
         ).strip()
 
     @staticmethod
     def _extraer_nombre_producto(factura: Dict) -> str:
-        """
-        Extrae nombre del producto normalizado (UPPER + STRIP).
-        Busca en TODOS los campos posibles.
-        """
-        nombre = str(
-            factura.get('nombre_producto')     # transformado / BD
-            or factura.get('f_desc_item')      # crudo API
-            or factura.get('producto')         # BD campo alterno
+        return str(
+            factura.get('nombre_producto')
+            or factura.get('f_desc_item')
+            or factura.get('producto')
             or ''
         ).strip().upper()
-        return nombre
 
     @staticmethod
     def _extraer_codigo_producto(factura: Dict) -> str:
-        """Extrae código de producto real"""
         return str(
-            factura.get('codigo_producto_api')  # transformado
-            or factura.get('f_cod_item')        # crudo API
-            or factura.get('codigo_producto')   # BD
+            factura.get('codigo_producto_api')
+            or factura.get('f_cod_item')
+            or factura.get('codigo_producto')
             or ''
         ).strip()
 
     @staticmethod
     def _extraer_cantidad_base(factura: Dict) -> float:
-        """
-        Extrae cantidad BASE (sin convertir por multiplicador).
-        IMPORTANTE: usar 'cantidad_original' (no 'cantidad' que es la convertida)
-        """
+        """Cantidad BASE (sin convertir). Siempre positiva."""
         return abs(float(
-            factura.get('cantidad_original')          # transformado (base)
-            or factura.get('f_cant_base')              # crudo API (base)
-            or factura.get('cantidad')                 # fallback
+            factura.get('cantidad_original')
+            or factura.get('f_cant_base')
+            or factura.get('cantidad')
             or 0
         ))
 
     @staticmethod
     def _extraer_valor_total(factura: Dict) -> float:
-        """Extrae valor total"""
+        """Valor total. Siempre positivo."""
         return abs(float(
-            factura.get('valor_total')                 # transformado / BD
-            or factura.get('f_valor_subtotal_local')   # crudo API
+            factura.get('valor_total')
+            or factura.get('f_valor_subtotal_local')
             or 0
         ))
 
     @staticmethod
     def _extraer_numero_factura(factura: Dict) -> str:
-        """Extrae número de factura completo"""
-        numero = str(factura.get('numero_factura', '')).strip()
-        if numero:
-            return numero
-        prefijo = str(factura.get('f_prefijo', '')).strip()
-        nrodocto = str(factura.get('f_nrodocto', '')).strip()
-        return f"{prefijo}{nrodocto}"
+        n = str(factura.get('numero_factura', '')).strip()
+        if n:
+            return n
+        return f"{str(factura.get('f_prefijo', '')).strip()}{str(factura.get('f_nrodocto', '')).strip()}"
 
     @staticmethod
     def _extraer_fecha(factura: Dict) -> str:
-        """Extrae fecha de la factura"""
         fecha_raw = factura.get('fecha_factura') or factura.get('f_fecha')
         if not fecha_raw:
             return datetime.now().strftime('%Y-%m-%d')
@@ -136,8 +116,11 @@ class NotasCreditoManager:
             return fecha_raw.strftime('%Y-%m-%d')
         return datetime.now().strftime('%Y-%m-%d')
 
+    def _parsear_fecha(self, fecha_raw) -> Optional[str]:
+        return self._extraer_fecha({'fecha_factura': fecha_raw, 'f_fecha': fecha_raw})
+
     # ═════════════════════════════════════════════════════════════
-    # SCHEMA
+    # SCHEMA (1 sola vez)
     # ═════════════════════════════════════════════════════════════
 
     def _crear_base_datos(self):
@@ -248,11 +231,9 @@ class NotasCreditoManager:
             ('idx_f_cliente', 'facturas', 'nit_cliente'),
             ('idx_f_producto', 'facturas', 'codigo_producto'),
             ('idx_f_fecha', 'facturas', 'fecha_factura'),
-            ('idx_f_cli_prod', 'facturas', 'nit_cliente, codigo_producto'),
             ('idx_r_fecha', 'facturas_rechazadas', 'fecha_factura'),
             ('idx_n_cliente', 'notas_credito', 'nit_cliente'),
             ('idx_n_estado', 'notas_credito', 'estado'),
-            ('idx_n_cli_est', 'notas_credito', 'nit_cliente, estado'),
             ('idx_a_nota', 'aplicaciones_notas', 'numero_nota'),
             ('idx_a_factura', 'aplicaciones_notas', 'numero_factura'),
         ]:
@@ -264,7 +245,7 @@ class NotasCreditoManager:
         self._sync_nullable_columns(cursor)
         conn.commit()
         conn.close()
-        logger.info("BD inicializada correctamente")
+        logger.info("BD inicializada")
 
     def _sync_nullable_columns(self, cursor):
         for q in [
@@ -301,11 +282,7 @@ class NotasCreditoManager:
         cursor = conn.cursor()
         registradas = 0
         try:
-            rows = []
-            for f in facturas:
-                row = self._preparar_factura_para_insert(f)
-                if row:
-                    rows.append(row)
+            rows = [r for r in (self._preparar_factura_para_insert(f) for f in facturas) if r]
             if rows:
                 cursor.executemany('''
                     INSERT INTO facturas (
@@ -316,19 +293,13 @@ class NotasCreditoManager:
                         fecha_factura, fecha_proceso, estado, registrable, total_repeticiones,
                         suma_total_repeticiones
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        'PROCESADA', %s, %s, %s
-                    )
-                    ON DUPLICATE KEY UPDATE
-                        cantidad_original = VALUES(cantidad_original),
-                        valor_total = VALUES(valor_total),
-                        precio_unitario = VALUES(precio_unitario),
-                        cantidad_restante = VALUES(cantidad_restante),
-                        valor_restante = VALUES(valor_restante),
-                        fecha_proceso = VALUES(fecha_proceso),
-                        nombre_producto = VALUES(nombre_producto),
-                        codigo_factura = VALUES(codigo_factura)
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                        'PROCESADA',%s,%s,%s
+                    ) ON DUPLICATE KEY UPDATE
+                        cantidad_original=VALUES(cantidad_original), valor_total=VALUES(valor_total),
+                        precio_unitario=VALUES(precio_unitario), cantidad_restante=VALUES(cantidad_restante),
+                        valor_restante=VALUES(valor_restante), fecha_proceso=VALUES(fecha_proceso),
+                        nombre_producto=VALUES(nombre_producto), codigo_factura=VALUES(codigo_factura)
                 ''', rows)
                 registradas = len(rows)
             conn.commit()
@@ -344,43 +315,32 @@ class NotasCreditoManager:
     def _preparar_factura_para_insert(self, factura: Dict) -> Optional[tuple]:
         try:
             es_cruda = any(k in factura for k in ('f_prefijo', 'f_nrodocto', 'f_cod_item'))
-            fecha_factura = self._extraer_fecha(factura)
-
+            fecha = self._extraer_fecha(factura)
             if es_cruda:
-                prefijo = str(factura.get('f_prefijo', '')).strip()
-                nrodocto = str(factura.get('f_nrodocto', '')).strip()
-                numero_factura = f"{prefijo}{nrodocto}"
-                indice_linea = int(factura.get('_indice_linea', factura.get('indice_linea', 0)) or 0)
-                codigo_producto = str(factura.get('f_cod_item', '')).strip()
-                producto = str(factura.get('f_desc_item', '')).strip()
-                nit_cliente = str(factura.get('f_cliente_desp', '')).strip()
-                nombre_cliente = str(factura.get('f_cliente_fact_razon_soc', '')).strip()
-                cantidad_original = float(factura.get('f_cant_base', 0.0) or 0.0)
-                valor_total = float(factura.get('f_valor_subtotal_local', 0.0) or 0.0)
-                precio_unitario = (valor_total / cantidad_original) if cantidad_original != 0 else 0.0
-                tipo_inventario = str(factura.get('f_cod_tipo_inv') or factura.get('f_tipo_inv') or '').strip()
+                nf = f"{str(factura.get('f_prefijo','')).strip()}{str(factura.get('f_nrodocto','')).strip()}"
+                il = int(factura.get('_indice_linea', factura.get('indice_linea', 0)) or 0)
+                cp = str(factura.get('f_cod_item','')).strip()
+                prod = str(factura.get('f_desc_item','')).strip()
+                nit = str(factura.get('f_cliente_desp','')).strip()
+                nc = str(factura.get('f_cliente_fact_razon_soc','')).strip()
+                co = float(factura.get('f_cant_base',0) or 0)
+                vt = float(factura.get('f_valor_subtotal_local',0) or 0)
+                pu = (vt/co) if co != 0 else 0.0
+                ti = str(factura.get('f_cod_tipo_inv') or factura.get('f_tipo_inv') or '').strip()
             else:
-                numero_factura = self._extraer_numero_factura(factura)
-                indice_linea = int(factura.get('indice_linea', factura.get('_indice_linea', 0)) or 0)
-                codigo_producto = self._extraer_codigo_producto(factura)
-                producto = self._extraer_nombre_producto(factura)  # nombre normalizado
-                nit_cliente = self._extraer_nit(factura)
-                nombre_cliente = str(factura.get('nombre_comprador') or factura.get('nombre_cliente', '')).strip()
-                cantidad_original = self._extraer_cantidad_base(factura)
-                valor_total = self._extraer_valor_total(factura)
-                precio_unitario = float(factura.get('precio_unitario', 0.0) or 0.0)
-                tipo_inventario = str(factura.get('descripcion') or factura.get('tipo_inventario', '')).strip()
-
-            return (
-                numero_factura, numero_factura, indice_linea, producto, producto,
-                codigo_producto, codigo_producto, nit_cliente, nit_cliente, nit_cliente,
-                nombre_cliente, nombre_cliente, cantidad_original, precio_unitario,
-                valor_total, cantidad_original, valor_total, tipo_inventario,
-                fecha_factura, fecha_factura, 1, 1, valor_total
-            )
+                nf = self._extraer_numero_factura(factura)
+                il = int(factura.get('indice_linea', factura.get('_indice_linea', 0)) or 0)
+                cp = self._extraer_codigo_producto(factura)
+                prod = self._extraer_nombre_producto(factura)
+                nit = self._extraer_nit(factura)
+                nc = str(factura.get('nombre_comprador') or factura.get('nombre_cliente','')).strip()
+                co = self._extraer_cantidad_base(factura)
+                vt = self._extraer_valor_total(factura)
+                pu = float(factura.get('precio_unitario',0) or 0)
+                ti = str(factura.get('descripcion') or factura.get('tipo_inventario','')).strip()
+            return (nf,nf,il,prod,prod,cp,cp,nit,nit,nit,nc,nc,co,pu,vt,co,vt,ti,fecha,fecha,1,1,vt)
         except Exception as e:
-            logger.error(f"Error preparando factura: {e}")
-            return None
+            logger.error(f"Error preparando factura: {e}"); return None
 
     def registrar_rechazadas_batch(self, rechazadas: List[Dict]) -> int:
         if not rechazadas:
@@ -391,39 +351,29 @@ class NotasCreditoManager:
         try:
             rows = []
             for item in rechazadas:
-                f = item['factura']
-                razon = item['razon_rechazo']
-                prefijo = str(f.get('f_prefijo', '')).strip()
-                nrodocto = f.get('f_nrodocto', '')
+                f = item['factura']; razon = item['razon_rechazo']
+                nf = f"{str(f.get('f_prefijo','')).strip()}{f.get('f_nrodocto','')}"
                 rows.append((
-                    f"{prefijo}{nrodocto}", f"{prefijo}{nrodocto}",
-                    str(f.get('f_cod_item', '')).strip(),
-                    str(f.get('f_desc_item', '')).strip(),
-                    str(f.get('f_cliente_desp', '')).strip(),
-                    str(f.get('f_cliente_fact_razon_soc', '')).strip(),
-                    float(f.get('f_cant_base', 0.0) or 0.0),
-                    float(f.get('f_valor_subtotal_local', 0.0) or 0.0),
-                    str(f.get('f_cod_tipo_inv', '')).strip(),
-                    str(f.get('f_cliente_desp', '')).strip(),
-                    str(f.get('f_cliente_desp', '')).strip(),
-                    str(f.get('f_cliente_fact_razon_soc', '')).strip(),
-                    razon, self._extraer_fecha(f)
+                    nf, nf, str(f.get('f_cod_item','')).strip(), str(f.get('f_desc_item','')).strip(),
+                    str(f.get('f_cliente_desp','')).strip(), str(f.get('f_cliente_fact_razon_soc','')).strip(),
+                    float(f.get('f_cant_base',0) or 0), float(f.get('f_valor_subtotal_local',0) or 0),
+                    str(f.get('f_cod_tipo_inv','')).strip(),
+                    str(f.get('f_cliente_desp','')).strip(), str(f.get('f_cliente_desp','')).strip(),
+                    str(f.get('f_cliente_fact_razon_soc','')).strip(), razon, self._extraer_fecha(f)
                 ))
             if rows:
                 cursor.executemany('''
                     INSERT INTO facturas_rechazadas
-                    (numero_factura, numero_linea, codigo_producto, producto,
-                     nit_cliente, nombre_cliente, cantidad, valor_total,
-                     tipo_inventario, nit_encrypted, nit_hash, nombre_cliente_encrypted,
-                     razon_rechazo, fecha_factura)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (numero_factura,numero_linea,codigo_producto,producto,nit_cliente,nombre_cliente,
+                     cantidad,valor_total,tipo_inventario,nit_encrypted,nit_hash,nombre_cliente_encrypted,
+                     razon_rechazo,fecha_factura)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ''', rows)
                 registradas = len(rows)
             conn.commit()
-            logger.info(f"Batch: {registradas} rechazadas registradas")
+            logger.info(f"Batch: {registradas} rechazadas")
         except Exception as e:
-            conn.rollback()
-            logger.error(f"Error batch rechazadas: {e}")
+            conn.rollback(); logger.error(f"Error batch rechazadas: {e}")
         finally:
             conn.close()
         return registradas
@@ -433,71 +383,48 @@ class NotasCreditoManager:
             return 0, 0
         conn = self._get_conn()
         cursor = conn.cursor()
-        nuevas = 0
-        filtradas = 0
+        nuevas = 0; filtradas = 0
         try:
-            numeros_check = list(set(
-                f"{n.get('f_prefijo', '')}{n.get('f_nrodocto', '')}" for n in notas
-            ))
+            nums = list(set(f"{n.get('f_prefijo','')}{n.get('f_nrodocto','')}" for n in notas))
             existentes = set()
-            if numeros_check:
-                ph = ','.join(['%s'] * len(numeros_check))
-                cursor.execute(f'SELECT numero_nota, codigo_producto FROM notas_credito WHERE numero_nota IN ({ph})', numeros_check)
-                for row in cursor.fetchall():
-                    r = row if isinstance(row, dict) else {'numero_nota': row[0], 'codigo_producto': row[1]}
+            if nums:
+                ph = ','.join(['%s']*len(nums))
+                cursor.execute(f'SELECT numero_nota,codigo_producto FROM notas_credito WHERE numero_nota IN ({ph})', nums)
+                for r in cursor.fetchall():
+                    r = r if isinstance(r, dict) else {'numero_nota':r[0],'codigo_producto':r[1]}
                     existentes.add((r['numero_nota'], r['codigo_producto']))
 
-            rows_to_insert = []
+            rows = []
             for nota in notas:
-                numero_nota = f"{nota.get('f_prefijo', '')}{nota.get('f_nrodocto', '')}"
-                fecha_nota = self._extraer_fecha(nota)
-                nit_cliente = str(nota.get('f_cliente_desp', '')).strip()
-                nombre_cliente = str(nota.get('f_cliente_fact_razon_soc', '')).strip()
-                nombre_producto = str(nota.get('f_desc_item', '')).strip()
-                tipo_inventario = str(nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or '').strip().upper()
-                causal = str(nota.get('f_notas_causal_dev', '') or '').strip() or None
+                nn = f"{nota.get('f_prefijo','')}{nota.get('f_nrodocto','')}"
+                np = str(nota.get('f_desc_item','')).strip()
+                cr = nota.get('f_cod_item')
+                cp = str(cr).strip() if cr and str(cr).strip() else np
+                vt = float(nota.get('f_valor_subtotal_local',0) or 0)
+                ca = float(nota.get('f_cant_base',0) or 0)
+                ti = str(nota.get('f_cod_tipo_inv') or nota.get('f_tipo_inv') or '').strip().upper()
+                cs = str(nota.get('f_notas_causal_dev','') or '').strip() or None
+                nit = str(nota.get('f_cliente_desp','')).strip()
+                nc = str(nota.get('f_cliente_fact_razon_soc','')).strip()
 
-                codigo_raw = nota.get('f_cod_item')
-                if codigo_raw and str(codigo_raw).strip():
-                    codigo_producto = str(codigo_raw).strip()
-                else:
-                    codigo_producto = nombre_producto
+                if ca != 0 and vt == 0: filtradas += 1; continue
+                if not cp and not np: continue
+                if (nn, cp) in existentes: continue
+                rows.append((nn, self._extraer_fecha(nota), nit, nc, cp, np, ti, nit, nit, nc, vt, ca, vt, ca, cs))
 
-                valor_total = float(nota.get('f_valor_subtotal_local', 0.0) or 0.0)
-                cantidad = float(nota.get('f_cant_base', 0.0) or 0.0)
-
-                if cantidad != 0 and valor_total == 0:
-                    filtradas += 1
-                    continue
-                if not codigo_producto and not nombre_producto:
-                    continue
-                if (numero_nota, codigo_producto) in existentes:
-                    continue
-
-                rows_to_insert.append((
-                    numero_nota, fecha_nota, nit_cliente, nombre_cliente,
-                    codigo_producto, nombre_producto, tipo_inventario,
-                    nit_cliente, nit_cliente, nombre_cliente,
-                    valor_total, cantidad, valor_total, cantidad, causal
-                ))
-
-            if rows_to_insert:
+            if rows:
                 cursor.executemany('''
                     INSERT INTO notas_credito
-                    (numero_nota, fecha_nota, nit_cliente, nombre_cliente,
-                     codigo_producto, nombre_producto, tipo_inventario,
-                     nit_encrypted, nit_hash, nombre_cliente_encrypted,
-                     valor_total, cantidad, saldo_pendiente, cantidad_pendiente,
-                     causal_devolucion, estado)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDIENTE')
-                ''', rows_to_insert)
-                nuevas = len(rows_to_insert)
-
+                    (numero_nota,fecha_nota,nit_cliente,nombre_cliente,codigo_producto,nombre_producto,
+                     tipo_inventario,nit_encrypted,nit_hash,nombre_cliente_encrypted,
+                     valor_total,cantidad,saldo_pendiente,cantidad_pendiente,causal_devolucion,estado)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PENDIENTE')
+                ''', rows)
+                nuevas = len(rows)
             conn.commit()
             logger.info(f"Batch: {nuevas} notas nuevas, {filtradas} filtradas")
         except Exception as e:
-            conn.rollback()
-            logger.error(f"Error batch notas: {e}")
+            conn.rollback(); logger.error(f"Error batch notas: {e}")
         finally:
             conn.close()
         return nuevas, filtradas
@@ -505,426 +432,367 @@ class NotasCreditoManager:
     # ═════════════════════════════════════════════════════════════
     # APLICACIÓN DE NOTAS CRÉDITO
     # ═════════════════════════════════════════════════════════════
+    #
+    # FIX v3.4: Valores NEGATIVOS desde SIESA
+    #   saldo_pendiente = -29,388,750 → ABS() = 29,388,750
+    #   cantidad_pendiente = -425     → abs() = 425
+    #
+    # SQL:    WHERE ABS(saldo_pendiente) > 0 AND estado IN (...)
+    # Python: abs() en TODAS las comparaciones
+    #
+    # ═════════════════════════════════════════════════════════════
 
     def procesar_notas_para_facturas_optimizado(self, facturas: List[Dict]) -> List[Dict]:
-        """
-        Aplica notas crédito a facturas.
-        Match por: NIT + NOMBRE DE PRODUCTO (normalizado UPPER).
-        Funciona con datos crudos API o transformados por ExcelProcessor.
-        """
         if not facturas:
             return []
 
-        # ── DEBUG: Mostrar formato de la primera factura ──
+        # Debug formato
         sample = facturas[0]
-        es_cruda = any(k in sample for k in ('f_prefijo', 'f_nrodocto'))
         es_transformada = 'nombre_producto' in sample and 'nit_comprador' in sample
-        logger.info(f"Formato facturas: {'CRUDO API' if es_cruda else 'TRANSFORMADO' if es_transformada else 'DESCONOCIDO'}")
-        logger.info(f"Campos de muestra: {list(sample.keys())[:10]}...")
+        logger.info(f"Formato: {'TRANSFORMADO' if es_transformada else 'CRUDO API'}")
 
-        # ── Paso 1: Extraer pares únicos (nit, nombre_producto) ──
+        # Paso 1: Pares únicos (nit, nombre_producto)
         pares_unicos = set()
-        for factura in facturas:
-            nit = self._extraer_nit(factura)
-            nombre_prod = self._extraer_nombre_producto(factura)
-            if nit and nombre_prod:
-                pares_unicos.add((nit, nombre_prod))
+        for f in facturas:
+            nit = self._extraer_nit(f)
+            nombre = self._extraer_nombre_producto(f)
+            if nit and nombre:
+                pares_unicos.add((nit, nombre))
 
         if not pares_unicos:
-            logger.warning("No hay pares NIT+producto para buscar notas")
-            return []
+            logger.warning("No hay pares NIT+producto"); return []
 
-        logger.info(f"Pares únicos (NIT, nombre_producto): {len(pares_unicos)}")
-        # Mostrar algunos pares para debug
-        for par in list(pares_unicos)[:3]:
-            logger.info(f"  Par ejemplo: NIT='{par[0]}' PRODUCTO='{par[1]}'")
+        logger.info(f"Pares únicos: {len(pares_unicos)}")
+        for p in list(pares_unicos)[:3]:
+            logger.info(f"  NIT='{p[0]}' PROD='{p[1]}'")
 
-        # ── Paso 2: Cargar TODAS las notas pendientes (1 query) ──
+        # Paso 2: Cargar notas pendientes
+        # ══ FIX v3.4: ABS(saldo_pendiente) > 0 en vez de saldo_pendiente > 0 ══
         conn = self._get_conn()
         cursor = conn.cursor()
-
-        nits_unicos = list(set(p[0] for p in pares_unicos))
-        ph = ','.join(['%s'] * len(nits_unicos))
+        nits = list(set(p[0] for p in pares_unicos))
+        ph = ','.join(['%s']*len(nits))
 
         cursor.execute(f'''
             SELECT * FROM notas_credito
             WHERE nit_cliente IN ({ph})
             AND estado IN ('PENDIENTE', 'PARCIAL')
-            AND saldo_pendiente > 0
+            AND ABS(saldo_pendiente) > 0
             ORDER BY fecha_nota ASC
-        ''', nits_unicos)
-
+        ''', nits)
         todas_notas = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
         if not todas_notas:
-            logger.info("No hay notas pendientes para los clientes")
-            return []
+            logger.info("No hay notas pendientes"); return []
 
         logger.info(f"Notas pendientes cargadas: {len(todas_notas)}")
+        for n in todas_notas[:3]:
+            logger.info(
+                f"  Nota {n['numero_nota']}: NIT={n['nit_cliente']} "
+                f"nombre='{n.get('nombre_producto','')}' "
+                f"codigo='{n.get('codigo_producto','')}' "
+                f"saldo={n['saldo_pendiente']} cant={n['cantidad_pendiente']}"
+            )
 
-        # ── Organizar notas por (nit, NOMBRE_PRODUCTO) ──
+        # Organizar notas por (nit, NOMBRE_PRODUCTO)
         notas_por_par = defaultdict(list)
-        notas_sin_match = []
-
         for nota in todas_notas:
-            nit_nota = str(nota['nit_cliente']).strip()
-            # El nombre puede estar en nombre_producto O codigo_producto (cuando f_cod_item era NULL)
-            nombre_nota = str(nota.get('nombre_producto') or '').strip().upper()
-            codigo_nota = str(nota.get('codigo_producto') or '').strip().upper()
+            nit_n = str(nota['nit_cliente']).strip()
+            nombre_n = str(nota.get('nombre_producto') or '').strip().upper()
+            codigo_n = str(nota.get('codigo_producto') or '').strip().upper()
 
-            # Intentar match con nombre_producto primero
-            key_nombre = (nit_nota, nombre_nota)
-            key_codigo = (nit_nota, codigo_nota)
+            key_nombre = (nit_n, nombre_n)
+            key_codigo = (nit_n, codigo_n)
 
-            matched = False
-            if nombre_nota and key_nombre in pares_unicos:
+            if nombre_n and key_nombre in pares_unicos:
                 notas_por_par[key_nombre].append(nota)
-                matched = True
-            elif codigo_nota and key_codigo in pares_unicos:
+            elif codigo_n and key_codigo in pares_unicos:
                 notas_por_par[key_codigo].append(nota)
-                matched = True
-
-            if not matched:
-                notas_sin_match.append(nota)
-                logger.debug(
-                    f"  Nota {nota['numero_nota']}: NIT='{nit_nota}' "
-                    f"nombre='{nombre_nota}' codigo='{codigo_nota}' → SIN MATCH en pares"
-                )
-
-        if notas_sin_match:
-            logger.warning(f"Notas sin match de par: {len(notas_sin_match)}")
-            for n in notas_sin_match[:5]:
-                logger.warning(
-                    f"  {n['numero_nota']}: NIT='{n['nit_cliente']}' "
-                    f"nombre='{n.get('nombre_producto', '')}' "
-                    f"codigo='{n.get('codigo_producto', '')}'"
-                )
+            else:
+                logger.debug(f"  Nota {nota['numero_nota']} sin match: nombre='{nombre_n}' codigo='{codigo_n}'")
 
         if not notas_por_par:
-            logger.warning("Ninguna nota coincide con facturas")
-            # Debug extra
-            nombres_fact = set(p[1] for p in pares_unicos)
-            nombres_nota = set()
+            nombres_f = set(p[1] for p in pares_unicos)
+            nombres_n = set()
             for n in todas_notas:
-                nombres_nota.add(str(n.get('nombre_producto') or '').strip().upper())
-                nombres_nota.add(str(n.get('codigo_producto') or '').strip().upper())
-            logger.warning(f"  Nombres en facturas (muestra): {list(nombres_fact)[:5]}")
-            logger.warning(f"  Nombres en notas (muestra):    {list(nombres_nota)[:5]}")
+                nombres_n.add(str(n.get('nombre_producto','') or '').strip().upper())
+                nombres_n.add(str(n.get('codigo_producto','') or '').strip().upper())
+            logger.warning(f"Sin match. Facturas: {list(nombres_f)[:3]} | Notas: {list(nombres_n)[:3]}")
             return []
 
-        logger.info(f"Pares con notas aplicables: {len(notas_por_par)}")
+        logger.info(f"Pares con notas: {len(notas_por_par)}")
 
-        # ── Paso 3: Construir mapa de facturas con saldos en memoria ──
+        # Paso 3: Mapa de facturas con saldos en memoria
         facturas_por_par = defaultdict(list)
-        for i, factura in enumerate(facturas):
-            nit = self._extraer_nit(factura)
-            nombre_prod = self._extraer_nombre_producto(factura)
-            if not nit or not nombre_prod:
+        for i, f in enumerate(facturas):
+            nit = self._extraer_nit(f)
+            nombre = self._extraer_nombre_producto(f)
+            if not nit or not nombre:
                 continue
-
-            codigo_producto_bd = self._extraer_codigo_producto(factura)
-            cantidad_base = self._extraer_cantidad_base(factura)
-            valor_total = self._extraer_valor_total(factura)
-            numero_factura = self._extraer_numero_factura(factura)
-            fecha_factura = self._extraer_fecha(factura)
-
-            indice_linea = factura.get('indice_linea', factura.get('_indice_linea'))
-            if indice_linea is not None:
-                try:
-                    indice_linea = int(indice_linea)
-                except (TypeError, ValueError):
-                    indice_linea = None
-
-            facturas_por_par[(nit, nombre_prod)].append({
+            facturas_por_par[(nit, nombre)].append({
                 '_idx': i,
-                'numero_factura': numero_factura,
-                'codigo_producto': codigo_producto_bd,
-                'nombre_producto': nombre_prod,
+                'numero_factura': self._extraer_numero_factura(f),
+                'codigo_producto': self._extraer_codigo_producto(f),
+                'nombre_producto': nombre,
                 'nit_cliente': nit,
-                'fecha_factura': fecha_factura,
-                'indice_linea': indice_linea,
-                'cantidad_restante': cantidad_base,
-                'valor_restante': valor_total,
+                'fecha_factura': self._extraer_fecha(f),
+                'indice_linea': self._safe_int(f.get('indice_linea', f.get('_indice_linea'))),
+                'cantidad_restante': self._extraer_cantidad_base(f),
+                'valor_restante': self._extraer_valor_total(f),
                 'total_descuento_cantidad': 0.0,
                 'total_descuento_valor': 0.0,
                 'notas_aplicadas': [],
             })
 
-        # ── Paso 4: Para cada nota, buscar factura donde quepa COMPLETA ──
+        # Paso 4: Aplicar notas
         aplicaciones = []
-        conn_apply = self._get_conn()
-        cursor_apply = conn_apply.cursor()
+        conn_a = self._get_conn()
+        cur = conn_a.cursor()
 
         try:
-            for key, notas_disponibles in notas_por_par.items():
-                facturas_candidatas = facturas_por_par.get(key, [])
-                if not facturas_candidatas:
-                    logger.debug(f"Par {key} tiene notas pero sin facturas candidatas")
+            for key, notas_disp in notas_por_par.items():
+                facs = facturas_por_par.get(key, [])
+                if not facs:
                     continue
 
-                logger.info(
-                    f"Par NIT={key[0]} PROD='{key[1]}': "
-                    f"{len(notas_disponibles)} notas, {len(facturas_candidatas)} facturas"
-                )
+                logger.info(f"Par {key}: {len(notas_disp)} notas, {len(facs)} facturas")
 
-                for nota in notas_disponibles:
-                    if nota['saldo_pendiente'] <= 0 or nota['cantidad_pendiente'] <= 0:
+                for nota in notas_disp:
+                    # ══ FIX v3.4: abs() para valores negativos ══
+                    cant_nota = abs(float(nota['cantidad_pendiente']))
+                    val_nota = abs(float(nota['saldo_pendiente']))
+
+                    if val_nota <= 0 and cant_nota <= 0:
                         continue
 
-                    cantidad_nota = abs(float(nota['cantidad_pendiente']))
-                    valor_nota = abs(float(nota['saldo_pendiente']))
-                    nota_aplicada = False
+                    aplicada = False
 
-                    for fmem in facturas_candidatas:
-                        cant_rest = fmem['cantidad_restante']
-                        val_rest = fmem['valor_restante']
+                    for fm in facs:
+                        cr = fm['cantidad_restante']
+                        vr = fm['valor_restante']
 
                         logger.debug(
-                            f"  Intentando: Nota {nota['numero_nota']} "
-                            f"(cant={cantidad_nota}, val=${valor_nota:,.2f}) → "
-                            f"Factura {fmem['numero_factura']} "
-                            f"(cant_rest={cant_rest}, val_rest=${val_rest:,.2f})"
+                            f"  Nota {nota['numero_nota']}(cant={cant_nota},val=${val_nota:,.0f}) "
+                            f"→ Fac {fm['numero_factura']}(cant_r={cr},val_r=${vr:,.0f})"
                         )
 
-                        if valor_nota > val_rest:
-                            logger.debug(f"    ❌ valor nota > valor restante factura")
+                        if val_nota > vr:
+                            logger.debug(f"    ❌ valor nota {val_nota} > valor restante {vr}")
                             continue
-                        if cantidad_nota > cant_rest:
-                            logger.debug(f"    ❌ cantidad nota > cantidad restante factura")
+                        if cant_nota > cr:
+                            logger.debug(f"    ❌ cant nota {cant_nota} > cant restante {cr}")
                             continue
 
-                        # ═══ APLICAR NOTA COMPLETA ═══
-                        cursor_apply.execute('''
+                        # ═══ APLICAR COMPLETA ═══
+                        cur.execute('''
                             INSERT INTO aplicaciones_notas
-                            (id_nota, numero_nota, numero_factura, numero_linea,
-                             fecha_factura, nit_cliente, codigo_producto,
-                             cantidad_aplicada, valor_aplicado)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''', (
-                            nota['id'], nota['numero_nota'],
-                            fmem['numero_factura'], fmem['numero_factura'],
-                            fmem['fecha_factura'], nota['nit_cliente'],
-                            fmem['codigo_producto'],
-                            cantidad_nota, valor_nota
-                        ))
+                            (id_nota,numero_nota,numero_factura,numero_linea,fecha_factura,
+                             nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ''', (nota['id'], nota['numero_nota'], fm['numero_factura'],
+                              fm['numero_factura'], fm['fecha_factura'], nota['nit_cliente'],
+                              fm['codigo_producto'], cant_nota, val_nota))
 
-                        cursor_apply.execute('''
+                        cur.execute('''
                             UPDATE notas_credito
-                            SET saldo_pendiente = 0, cantidad_pendiente = 0,
-                                estado = 'APLICADA', fecha_aplicacion_completa = %s
-                            WHERE id = %s
+                            SET saldo_pendiente=0, cantidad_pendiente=0,
+                                estado='APLICADA', fecha_aplicacion_completa=%s
+                            WHERE id=%s
                         ''', (datetime.now().isoformat(), nota['id']))
 
-                        nueva_cant = cant_rest - cantidad_nota
-                        nuevo_val = val_rest - valor_nota
+                        nc = cr - cant_nota
+                        nv = vr - val_nota
 
-                        if fmem['indice_linea'] is not None:
-                            cursor_apply.execute('''
+                        if fm['indice_linea'] is not None:
+                            cur.execute('''
                                 UPDATE facturas
-                                SET nota_aplicada = 1, numero_nota_aplicada = %s,
-                                    descuento_cantidad = descuento_cantidad + %s,
-                                    descuento_valor = descuento_valor + %s,
-                                    cantidad_restante = %s, valor_restante = %s
-                                WHERE numero_factura = %s AND codigo_producto = %s
-                                  AND indice_linea = %s AND fecha_proceso = %s
-                            ''', (
-                                nota['numero_nota'], cantidad_nota, valor_nota,
-                                nueva_cant, nuevo_val,
-                                fmem['numero_factura'], fmem['codigo_producto'],
-                                fmem['indice_linea'], fmem['fecha_factura']
-                            ))
+                                SET nota_aplicada=1, numero_nota_aplicada=%s,
+                                    descuento_cantidad=descuento_cantidad+%s,
+                                    descuento_valor=descuento_valor+%s,
+                                    cantidad_restante=%s, valor_restante=%s
+                                WHERE numero_factura=%s AND codigo_producto=%s
+                                  AND indice_linea=%s AND fecha_proceso=%s
+                            ''', (nota['numero_nota'], cant_nota, val_nota, nc, nv,
+                                  fm['numero_factura'], fm['codigo_producto'],
+                                  fm['indice_linea'], fm['fecha_factura']))
                         else:
-                            cursor_apply.execute('''
+                            cur.execute('''
                                 UPDATE facturas
-                                SET nota_aplicada = 1, numero_nota_aplicada = %s,
-                                    descuento_cantidad = descuento_cantidad + %s,
-                                    descuento_valor = descuento_valor + %s,
-                                    cantidad_restante = %s, valor_restante = %s
-                                WHERE numero_factura = %s AND codigo_producto = %s
-                            ''', (
-                                nota['numero_nota'], cantidad_nota, valor_nota,
-                                nueva_cant, nuevo_val,
-                                fmem['numero_factura'], fmem['codigo_producto']
-                            ))
+                                SET nota_aplicada=1, numero_nota_aplicada=%s,
+                                    descuento_cantidad=descuento_cantidad+%s,
+                                    descuento_valor=descuento_valor+%s,
+                                    cantidad_restante=%s, valor_restante=%s
+                                WHERE numero_factura=%s AND codigo_producto=%s
+                            ''', (nota['numero_nota'], cant_nota, val_nota, nc, nv,
+                                  fm['numero_factura'], fm['codigo_producto']))
 
-                        fmem['cantidad_restante'] = nueva_cant
-                        fmem['valor_restante'] = nuevo_val
-                        fmem['total_descuento_cantidad'] += cantidad_nota
-                        fmem['total_descuento_valor'] += valor_nota
-                        fmem['notas_aplicadas'].append(nota['numero_nota'])
+                        fm['cantidad_restante'] = nc
+                        fm['valor_restante'] = nv
+                        fm['total_descuento_cantidad'] += cant_nota
+                        fm['total_descuento_valor'] += val_nota
+                        fm['notas_aplicadas'].append(nota['numero_nota'])
 
                         nota['saldo_pendiente'] = 0
                         nota['cantidad_pendiente'] = 0
 
                         aplicaciones.append({
                             'numero_nota': nota['numero_nota'],
-                            'numero_factura': fmem['numero_factura'],
-                            'codigo_producto': fmem['codigo_producto'],
-                            'nombre_producto': fmem['nombre_producto'],
-                            'cantidad_aplicada': cantidad_nota,
-                            'valor_aplicado': valor_nota,
-                            'cantidad_restante_factura': nueva_cant,
-                            'valor_restante_factura': nuevo_val,
+                            'numero_factura': fm['numero_factura'],
+                            'codigo_producto': fm['codigo_producto'],
+                            'nombre_producto': fm['nombre_producto'],
+                            'cantidad_aplicada': cant_nota,
+                            'valor_aplicado': val_nota,
+                            'cantidad_restante_factura': nc,
+                            'valor_restante_factura': nv,
                             'estado_nota': 'APLICADA'
                         })
 
                         logger.info(
-                            f"  ✅ Nota {nota['numero_nota']} → {fmem['numero_factura']}: "
-                            f"Cant={cantidad_nota} Val=${valor_nota:,.2f} | "
-                            f"Restante: Cant={nueva_cant} Val=${nuevo_val:,.2f}"
+                            f"  ✅ {nota['numero_nota']} → {fm['numero_factura']}: "
+                            f"Cant={cant_nota} Val=${val_nota:,.0f} | "
+                            f"Rest: Cant={nc} Val=${nv:,.0f}"
                         )
-                        nota_aplicada = True
+                        aplicada = True
                         break
 
-                    if not nota_aplicada:
+                    if not aplicada:
                         logger.warning(
-                            f"  ⚠️ Nota {nota['numero_nota']} NO CABE en ninguna factura "
-                            f"(Cant={cantidad_nota} Val=${valor_nota:,.2f})"
+                            f"  ⚠️ Nota {nota['numero_nota']} NO CABE "
+                            f"(Cant={cant_nota} Val=${val_nota:,.0f})"
                         )
 
-            conn_apply.commit()
+            conn_a.commit()
         except Exception as e:
-            conn_apply.rollback()
+            conn_a.rollback()
             logger.error(f"Error aplicando notas: {e}")
             import traceback; traceback.print_exc()
         finally:
-            conn_apply.close()
+            conn_a.close()
 
         logger.info(f"Total aplicaciones: {len(aplicaciones)}")
 
-        # ── Paso 5: Actualizar facturas originales para Excel ──
-        for key, facturas_mem in facturas_por_par.items():
-            for fmem in facturas_mem:
-                if fmem['total_descuento_valor'] > 0:
-                    idx = fmem['_idx']
-                    facturas[idx]['descuento_valor'] = fmem['total_descuento_valor']
-                    facturas[idx]['descuento_cantidad'] = fmem['total_descuento_cantidad']
-                    facturas[idx]['nota_aplicada'] = ','.join(fmem['notas_aplicadas'])
+        # Paso 5: Actualizar facturas originales para Excel
+        for key, fmems in facturas_por_par.items():
+            for fm in fmems:
+                if fm['total_descuento_valor'] > 0:
+                    idx = fm['_idx']
+                    facturas[idx]['descuento_valor'] = fm['total_descuento_valor']
+                    facturas[idx]['descuento_cantidad'] = fm['total_descuento_cantidad']
+                    facturas[idx]['nota_aplicada'] = ','.join(fm['notas_aplicadas'])
 
         return aplicaciones
 
-    # Aliases
-    def procesar_notas_para_facturas(self, facturas: List[Dict]) -> List[Dict]:
-        return self.procesar_notas_para_facturas_optimizado(facturas)
+    @staticmethod
+    def _safe_int(val):
+        if val is None: return None
+        try: return int(val)
+        except: return None
 
-    def registrar_nota_credito(self, nota: Dict) -> bool:
-        n, _ = self.registrar_notas_batch([nota]); return n > 0
+    # ═════════════════════════════════════════════════════════════
+    # ALIASES DE COMPATIBILIDAD
+    # ═════════════════════════════════════════════════════════════
 
-    def registrar_factura(self, factura: Dict) -> bool:
-        return self.registrar_facturas_batch([factura]) > 0
+    def procesar_notas_para_facturas(self, f): return self.procesar_notas_para_facturas_optimizado(f)
+    def registrar_nota_credito(self, n): r,_=self.registrar_notas_batch([n]); return r>0
+    def registrar_factura(self, f): return self.registrar_facturas_batch([f])>0
+    def registrar_factura_rechazada(self, f, r): return self.registrar_rechazadas_batch([{'factura':f,'razon_rechazo':r}])>0
+    def registrar_factura_completa(self, f): return self.registrar_factura(f)
 
-    def registrar_factura_rechazada(self, factura: Dict, razon: str) -> bool:
-        return self.registrar_rechazadas_batch([{'factura': factura, 'razon_rechazo': razon}]) > 0
+    def aplicar_nota_a_factura(self, nota, factura, cursor=None):
+        nf = self._extraer_nit(factura)
+        if nota['nit_cliente'] != nf: return None
+        nn = str(nota.get('nombre_producto') or nota.get('codigo_producto') or '').strip().upper()
+        nfp = self._extraer_nombre_producto(factura)
+        if nn != nfp: return None
+        cf = self._extraer_cantidad_base(factura); vf = self._extraer_valor_total(factura)
+        cn = abs(float(nota['cantidad_pendiente'])); vn = abs(float(nota['saldo_pendiente']))
+        if vn > vf or cn > cf: return None
 
-    def registrar_factura_completa(self, ft: Dict) -> bool:
-        return self.registrar_factura(ft)
-
-    def aplicar_nota_a_factura(self, nota: Dict, factura: Dict, cursor=None) -> Optional[Dict]:
-        nombre_fact = self._extraer_nombre_producto(factura)
-        nombre_nota = str(nota.get('nombre_producto') or nota.get('codigo_producto') or '').strip().upper()
-        nit_fact = self._extraer_nit(factura)
-
-        if nota['nit_cliente'] != nit_fact: return None
-        if nombre_nota != nombre_fact: return None
-
-        cant_fact = self._extraer_cantidad_base(factura)
-        val_fact = self._extraer_valor_total(factura)
-        cant_nota = abs(float(nota['cantidad_pendiente']))
-        val_nota = abs(float(nota['saldo_pendiente']))
-
-        if val_nota > val_fact: return None
-        if cant_nota > cant_fact: return None
-
-        conn = None
-        if cursor is None: conn = self._get_conn(); cursor = conn.cursor()
+        own_conn = cursor is None
+        if own_conn: conn=self._get_conn(); cursor=conn.cursor()
         try:
-            nf = self._extraer_numero_factura(factura)
-            cp = self._extraer_codigo_producto(factura)
-            ff = self._extraer_fecha(factura)
-            il = factura.get('indice_linea', factura.get('_indice_linea'))
-            if il is not None:
-                try: il = int(il)
-                except: il = None
-
+            nfn=self._extraer_numero_factura(factura); cp=self._extraer_codigo_producto(factura)
+            ff=self._extraer_fecha(factura)
+            il=self._safe_int(factura.get('indice_linea',factura.get('_indice_linea')))
             cursor.execute('INSERT INTO aplicaciones_notas (id_nota,numero_nota,numero_factura,numero_linea,fecha_factura,nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                (nota['id'],nota['numero_nota'],nf,nf,ff,nota['nit_cliente'],cp,cant_nota,val_nota))
-            cursor.execute('UPDATE notas_credito SET saldo_pendiente=0,cantidad_pendiente=0,estado=%s,fecha_aplicacion_completa=%s WHERE id=%s',
-                ('APLICADA',datetime.now().isoformat(),nota['id']))
-            nc=cant_fact-cant_nota; nv=val_fact-val_nota
+                (nota['id'],nota['numero_nota'],nfn,nfn,ff,nota['nit_cliente'],cp,cn,vn))
+            cursor.execute('UPDATE notas_credito SET saldo_pendiente=0,cantidad_pendiente=0,estado="APLICADA",fecha_aplicacion_completa=%s WHERE id=%s',(datetime.now().isoformat(),nota['id']))
+            nc=cf-cn; nv=vf-vn
             if il is not None:
                 cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_cantidad=descuento_cantidad+%s,descuento_valor=descuento_valor+%s,cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s AND indice_linea=%s AND fecha_proceso=%s',
-                    (nota['numero_nota'],cant_nota,val_nota,nc,nv,nf,cp,il,ff))
+                    (nota['numero_nota'],cn,vn,nc,nv,nfn,cp,il,ff))
             else:
                 cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_cantidad=descuento_cantidad+%s,descuento_valor=descuento_valor+%s,cantidad_restante=%s,valor_restante=%s WHERE numero_factura=%s AND codigo_producto=%s',
-                    (nota['numero_nota'],cant_nota,val_nota,nc,nv,nf,cp))
-            if conn: conn.commit()
-            return {'numero_nota':nota['numero_nota'],'numero_factura':nf,'cantidad_aplicada':cant_nota,'valor_aplicado':val_nota,'cantidad_restante_factura':nc,'valor_restante_factura':nv,'estado_nota':'APLICADA'}
+                    (nota['numero_nota'],cn,vn,nc,nv,nfn,cp))
+            if own_conn: conn.commit()
+            return {'numero_nota':nota['numero_nota'],'numero_factura':nfn,'cantidad_aplicada':cn,'valor_aplicado':vn,'cantidad_restante_factura':nc,'valor_restante_factura':nv,'estado_nota':'APLICADA'}
         except Exception as e:
-            if conn: conn.rollback()
+            if own_conn: conn.rollback()
             logger.error(f"Error: {e}"); return None
         finally:
-            if conn: conn.close()
-
-    def _parsear_fecha(self, fecha_raw) -> Optional[str]:
-        return self._extraer_fecha({'fecha_factura': fecha_raw, 'f_fecha': fecha_raw})
+            if own_conn: conn.close()
 
     # ═════════════════════════════════════════════════════════════
     # CONSULTAS
     # ═════════════════════════════════════════════════════════════
 
-    def obtener_notas_pendientes(self, nit_cliente: str, codigo_producto: str) -> List[Dict]:
+    def obtener_notas_pendientes(self, nit_cliente, codigo_producto):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
-            cursor.execute('SELECT * FROM notas_credito WHERE nit_cliente=%s AND (codigo_producto=%s OR nombre_producto=%s) AND estado IN ("PENDIENTE","PARCIAL") AND saldo_pendiente>0 ORDER BY fecha_nota ASC',(nit_cliente,codigo_producto,codigo_producto))
-            r=[dict(row) for row in cursor.fetchall()];conn.close();return r
+            conn=self._get_conn(); cursor=conn.cursor()
+            cursor.execute('''SELECT * FROM notas_credito
+                WHERE nit_cliente=%s AND (codigo_producto=%s OR nombre_producto=%s)
+                AND estado IN ('PENDIENTE','PARCIAL') AND ABS(saldo_pendiente)>0
+                ORDER BY fecha_nota ASC''', (nit_cliente, codigo_producto, codigo_producto))
+            r=[dict(row) for row in cursor.fetchall()]; conn.close(); return r
         except Exception as e: logger.error(f"Error: {e}"); return []
 
-    def obtener_resumen_notas(self) -> Dict:
+    def obtener_resumen_notas(self):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
-            cursor.execute("SELECT COUNT(*),SUM(saldo_pendiente) FROM notas_credito WHERE estado='PENDIENTE'")
+            conn=self._get_conn(); cursor=conn.cursor()
+            cursor.execute("SELECT COUNT(*),SUM(ABS(saldo_pendiente)) FROM notas_credito WHERE estado='PENDIENTE'")
             row=cursor.fetchone()
-            if isinstance(row,dict): p=row.get('COUNT(*)',0);s=row.get('SUM(saldo_pendiente)',0.0)
-            else: p=row[0] if row else 0;s=row[1] if row and len(row)>1 else 0.0
-            cursor.execute("SELECT COUNT(*) FROM notas_credito WHERE estado='APLICADA'");a=cursor.fetchone()[0]
-            cursor.execute('SELECT COUNT(*),SUM(valor_aplicado) FROM aplicaciones_notas');na,ta=cursor.fetchone()
+            if isinstance(row,dict): p=row.get('COUNT(*)',0); s=row.get('SUM(ABS(saldo_pendiente))',0.0)
+            else: p=row[0] if row else 0; s=row[1] if row and len(row)>1 else 0.0
+            cursor.execute("SELECT COUNT(*) FROM notas_credito WHERE estado='APLICADA'"); a=cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*),SUM(valor_aplicado) FROM aplicaciones_notas'); na,ta=cursor.fetchone()
             conn.close()
             return {'notas_pendientes':p or 0,'saldo_pendiente_total':s or 0.0,'notas_aplicadas':a or 0,'total_aplicaciones':na or 0,'monto_total_aplicado':ta or 0.0}
         except Exception as e: logger.error(f"Error: {e}"); return {}
 
-    def obtener_resumen_facturas(self) -> Dict:
+    def obtener_resumen_facturas(self):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
-            cursor.execute('SELECT COUNT(*),SUM(valor_total) FROM facturas');tv,vt=cursor.fetchone()
-            cursor.execute('SELECT COUNT(*) FROM facturas WHERE nota_aplicada=1');cn=cursor.fetchone()[0]
-            cursor.execute('SELECT SUM(descuento_valor) FROM facturas WHERE nota_aplicada=1');td=cursor.fetchone()[0]
-            cursor.execute('SELECT COUNT(*) FROM facturas_rechazadas');tr=cursor.fetchone()[0]
+            conn=self._get_conn(); cursor=conn.cursor()
+            cursor.execute('SELECT COUNT(*),SUM(valor_total) FROM facturas'); tv,vt=cursor.fetchone()
+            cursor.execute('SELECT COUNT(*) FROM facturas WHERE nota_aplicada=1'); cn=cursor.fetchone()[0]
+            cursor.execute('SELECT SUM(descuento_valor) FROM facturas WHERE nota_aplicada=1'); td=cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM facturas_rechazadas'); tr=cursor.fetchone()[0]
             conn.close()
             return {'facturas_validas':tv or 0,'valor_total_facturado':vt or 0.0,'facturas_con_notas':cn or 0,'total_descontado':td or 0.0,'facturas_rechazadas':tr or 0}
         except Exception as e: logger.error(f"Error: {e}"); return {}
 
-    def obtener_historial_nota(self, numero_nota: str) -> List[Dict]:
+    def obtener_historial_nota(self, numero_nota):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
+            conn=self._get_conn(); cursor=conn.cursor()
             cursor.execute('SELECT * FROM aplicaciones_notas WHERE numero_nota=%s ORDER BY fecha_aplicacion DESC',(numero_nota,))
-            r=[dict(row) for row in cursor.fetchall()];conn.close();return r
+            r=[dict(row) for row in cursor.fetchall()]; conn.close(); return r
         except Exception as e: logger.error(f"Error: {e}"); return []
 
-    def obtener_resumen_rechazos(self, dias: int = 7) -> Dict:
+    def obtener_resumen_rechazos(self, dias=7):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
+            conn=self._get_conn(); cursor=conn.cursor()
             fl=(datetime.now()-timedelta(days=dias)).strftime('%Y-%m-%d')
-            cursor.execute('SELECT COUNT(*),SUM(valor_total) FROM facturas_rechazadas WHERE fecha_registro>=%s',(fl,));tr,vt=cursor.fetchone()
+            cursor.execute('SELECT COUNT(*),SUM(valor_total) FROM facturas_rechazadas WHERE fecha_registro>=%s',(fl,))
+            tr,vt=cursor.fetchone()
             cursor.execute('SELECT razon_rechazo,COUNT(*),SUM(valor_total) FROM facturas_rechazadas WHERE fecha_registro>=%s GROUP BY razon_rechazo ORDER BY COUNT(*) DESC',(fl,))
-            pr=[{'razon':r[0],'cantidad':r[1],'valor':r[2]} for r in cursor.fetchall()];conn.close()
+            pr=[{'razon':r[0],'cantidad':r[1],'valor':r[2]} for r in cursor.fetchall()]; conn.close()
             return {'total_rechazos':tr or 0,'valor_total_rechazado':vt or 0.0,'por_razon':pr}
         except Exception as e: logger.error(f"Error: {e}"); return {}
 
-    def actualizar_factura_con_nota(self, numero_factura, codigo_producto, numero_nota, valor_aplicado, cantidad_aplicada) -> bool:
+    def actualizar_factura_con_nota(self, nf, cp, nn, va, ca):
         try:
-            conn=self._get_conn();cursor=conn.cursor()
+            conn=self._get_conn(); cursor=conn.cursor()
             cursor.execute('UPDATE facturas SET nota_aplicada=1,numero_nota_aplicada=%s,descuento_valor=descuento_valor+%s,descuento_cantidad=descuento_cantidad+%s WHERE numero_factura=%s AND codigo_producto=%s',
-                (numero_nota,abs(valor_aplicado),abs(cantidad_aplicada),numero_factura,codigo_producto))
-            conn.commit();conn.close();return True
+                (nn,abs(va),abs(ca),nf,cp))
+            conn.commit(); conn.close(); return True
         except Exception as e: logger.error(f"Error: {e}"); return False
