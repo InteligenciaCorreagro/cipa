@@ -524,20 +524,63 @@ class NotasCreditoManager:
         logger.info(f"Pares con notas: {len(notas_por_par)}")
 
         # Paso 3: Mapa de facturas con saldos en memoria
+        # Pre-cargar IDs de facturas desde BD (necesario para id_factura en aplicaciones_notas)
+        conn_ids = self._get_conn()
+        cur_ids = conn_ids.cursor()
+        ph_nits = ','.join(['%s'] * len(nits))
+        cur_ids.execute(f'''
+            SELECT id, numero_factura, codigo_producto, indice_linea, fecha_proceso
+            FROM facturas WHERE nit_cliente IN ({ph_nits})
+        ''', nits)
+        # Indexar por (numero_factura, codigo_producto, indice_linea, fecha_proceso)
+        factura_ids_map = {}
+        for row in cur_ids.fetchall():
+            r = row if isinstance(row, dict) else {
+                'id': row[0], 'numero_factura': row[1], 'codigo_producto': row[2],
+                'indice_linea': row[3], 'fecha_proceso': row[4]
+            }
+            key_id = (
+                str(r['numero_factura']).strip(),
+                str(r['codigo_producto']).strip(),
+                self._safe_int(r['indice_linea']),
+                str(r['fecha_proceso']) if r['fecha_proceso'] else None
+            )
+            factura_ids_map[key_id] = r['id']
+            # También guardar sin indice_linea para fallback
+            key_simple = (str(r['numero_factura']).strip(), str(r['codigo_producto']).strip())
+            if key_simple not in factura_ids_map:
+                factura_ids_map[key_simple] = r['id']
+        conn_ids.close()
+        logger.info(f"IDs de facturas pre-cargados: {len(factura_ids_map)}")
+
         facturas_por_par = defaultdict(list)
         for i, f in enumerate(facturas):
             nit = self._extraer_nit(f)
             nombre = self._extraer_nombre_producto(f)
             if not nit or not nombre:
                 continue
+
+            num_fac = self._extraer_numero_factura(f)
+            cod_prod = self._extraer_codigo_producto(f)
+            fecha_fac = self._extraer_fecha(f)
+            idx_linea = self._safe_int(f.get('indice_linea', f.get('_indice_linea')))
+
+            # Buscar id_factura en BD
+            id_factura = factura_ids_map.get(
+                (num_fac, cod_prod, idx_linea, fecha_fac)
+            ) or factura_ids_map.get(
+                (num_fac, cod_prod)
+            )
+
             facturas_por_par[(nit, nombre)].append({
                 '_idx': i,
-                'numero_factura': self._extraer_numero_factura(f),
-                'codigo_producto': self._extraer_codigo_producto(f),
+                'id_factura': id_factura,
+                'numero_factura': num_fac,
+                'codigo_producto': cod_prod,
                 'nombre_producto': nombre,
                 'nit_cliente': nit,
-                'fecha_factura': self._extraer_fecha(f),
-                'indice_linea': self._safe_int(f.get('indice_linea', f.get('_indice_linea'))),
+                'fecha_factura': fecha_fac,
+                'indice_linea': idx_linea,
                 'cantidad_restante': self._extraer_cantidad_base(f),
                 'valor_restante': self._extraer_valor_total(f),
                 'total_descuento_cantidad': 0.0,
@@ -587,10 +630,10 @@ class NotasCreditoManager:
                         # ═══ APLICAR COMPLETA ═══
                         cur.execute('''
                             INSERT INTO aplicaciones_notas
-                            (id_nota,numero_nota,numero_factura,numero_linea,fecha_factura,
+                            (id_nota,id_factura,numero_nota,numero_factura,numero_linea,fecha_factura,
                              nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ''', (nota['id'], nota['numero_nota'], fm['numero_factura'],
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ''', (nota['id'], fm.get('id_factura') or 0, nota['numero_nota'], fm['numero_factura'],
                               fm['numero_factura'], fm['fecha_factura'], nota['nit_cliente'],
                               fm['codigo_producto'], cant_nota, val_nota))
 
@@ -715,8 +758,14 @@ class NotasCreditoManager:
             nfn=self._extraer_numero_factura(factura); cp=self._extraer_codigo_producto(factura)
             ff=self._extraer_fecha(factura)
             il=self._safe_int(factura.get('indice_linea',factura.get('_indice_linea')))
-            cursor.execute('INSERT INTO aplicaciones_notas (id_nota,numero_nota,numero_factura,numero_linea,fecha_factura,nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                (nota['id'],nota['numero_nota'],nfn,nfn,ff,nota['nit_cliente'],cp,cn,vn))
+            # Buscar id_factura en BD
+            id_factura = factura.get('id') or 0
+            if not id_factura:
+                cursor.execute('SELECT id FROM facturas WHERE numero_factura=%s AND codigo_producto=%s LIMIT 1', (nfn, cp))
+                row = cursor.fetchone()
+                id_factura = (row[0] if row and not isinstance(row, dict) else row.get('id', 0) if row else 0)
+            cursor.execute('INSERT INTO aplicaciones_notas (id_nota,id_factura,numero_nota,numero_factura,numero_linea,fecha_factura,nit_cliente,codigo_producto,cantidad_aplicada,valor_aplicado) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                (nota['id'],id_factura,nota['numero_nota'],nfn,nfn,ff,nota['nit_cliente'],cp,cn,vn))
             cursor.execute('UPDATE notas_credito SET saldo_pendiente=0,cantidad_pendiente=0,estado="APLICADA",fecha_aplicacion_completa=%s WHERE id=%s',(datetime.now().isoformat(),nota['id']))
             nc=cf-cn; nv=vf-vn
             if il is not None:
